@@ -78,6 +78,7 @@
 
 #define RETRY_INTERVAL_US 500 * 1000
 static bool agm_initialized = 0;
+static bool ats_initialized = 0;
 static pthread_t ats_thread;
 static const int MAX_RETRIES = 120;
 
@@ -93,6 +94,7 @@ static void *ats_init_thread(void *obj __unused)
                 AGM_LOGE("ats_init failed retry %d err %d", retry, ret);
                 usleep(RETRY_INTERVAL_US);
             } else {
+                ats_initialized = 1;
                 AGM_LOGD("ATS initialized");
                 break;
             }
@@ -105,6 +107,7 @@ static void *ats_init_thread(void *obj __unused)
 int agm_init()
 {
     int ret = 0;
+    int retry = 0;
 
     if (agm_initialized)
         goto exit;
@@ -134,6 +137,12 @@ int agm_init()
     }
     agm_initialized = 1;
 
+    while (retry++ < MAX_RETRIES) {
+        if (ats_initialized)
+            goto exit;
+        else
+            usleep(RETRY_INTERVAL_US);
+    }
 exit:
     return ret;
 }
