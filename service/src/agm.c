@@ -614,6 +614,12 @@ int agm_session_set_config(uint64_t hndl,
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
+
     return session_obj_set_config(handle, stream_config, media_config,
                                                        buffer_config);
 }
@@ -623,6 +629,11 @@ int agm_session_prepare(uint64_t hndl)
 
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
+
+    if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
@@ -637,6 +648,11 @@ int agm_session_start(uint64_t hndl)
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_start(handle);
 }
 
@@ -645,6 +661,11 @@ int agm_session_stop(uint64_t hndl)
 
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
+
+    if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
@@ -658,6 +679,11 @@ int agm_session_close(uint64_t hndl)
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_close(handle);
 }
 
@@ -665,6 +691,11 @@ int agm_session_pause(uint64_t hndl)
 {
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
+
+    if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
@@ -688,6 +719,11 @@ int agm_session_resume(uint64_t hndl)
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_resume(handle);
 }
 
@@ -708,6 +744,11 @@ int agm_session_write(uint64_t hndl, void *buff, size_t *count)
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_write(handle, buff, count);
 }
 
@@ -718,6 +759,11 @@ int agm_session_read(uint64_t hndl, void *buff, size_t *count)
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
+
+    if (!session_obj_valid_check(hndl)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_read(handle, buff, count);
 }
 
@@ -725,6 +771,11 @@ size_t agm_get_hw_processed_buff_cnt(uint64_t hndl, enum direction dir)
 {
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
+
+    if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
@@ -787,6 +838,10 @@ int agm_session_eos(uint64_t handle)
         return -EINVAL;
     }
 
+    if (!session_obj_valid_check(handle)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_eos((struct session_obj *) handle);
 }
 
@@ -794,6 +849,11 @@ int agm_get_session_time(uint64_t handle, uint64_t *timestamp)
 {
     if (!handle || !timestamp) {
         AGM_LOGE("Invalid handle or timestamp pointer\n");
+        return -EINVAL;
+    }
+
+    if (!session_obj_valid_check(handle)) {
+        AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
     return session_obj_get_timestamp((struct session_obj *) handle, timestamp);
@@ -857,6 +917,10 @@ int agm_set_gapless_session_metadata(uint64_t handle,
         return -EINVAL;
     }
 
+    if (!session_obj_valid_check(handle)) {
+        AGM_LOGE("Invalid handle\n");
+        return -EINVAL;
+    }
     return session_obj_set_gapless_metadata((struct session_obj *) handle, type,
                                              silence);
 }
