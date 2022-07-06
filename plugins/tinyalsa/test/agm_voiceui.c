@@ -1,5 +1,6 @@
 /*
-** Copyright (c) 2019, 2021, The Linux Foundation. All rights reserved.
+
+ ** Copyright (c) 2019, 2021, The Linux Foundation. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -25,7 +26,40 @@
 ** WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-**/
+**
+** Changes from Qualcomm Innovation Center are provided under the following license:
+** Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+**
+** Redistribution and use in source and binary forms, with or without
+** modification, are permitted (subject to the limitations in the
+** disclaimer below) provided that the following conditions are met:
+**
+**     * Redistributions of source code must retain the above copyright
+**       notice, this list of conditions and the following disclaimer.
+**
+**     * Redistributions in binary form must reproduce the above
+**       copyright notice, this list of conditions and the following
+**       disclaimer in the documentation and/or other materials provided
+**       with the distribution.
+**
+**     * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
+**       contributors may be used to endorse or promote products derived
+**       from this software without specific prior written permission.
+**
+** NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+** GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+** HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+** WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+** MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+** IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+** ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+** DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+** GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+** INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+** IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+** OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 #include <errno.h>
 #include <tinyalsa/asoundlib.h>
@@ -75,6 +109,10 @@ static void read_event_data(struct mixer *mixer, char *mixer_str)
     num_values = mixer_ctl_get_num_values(ctl);
     printf("%s - %d\n", __func__, num_values);
     buf = calloc(1, num_values);
+    if (!buf) {
+        printf("Failed to allocate memory for buffer\n");
+        return;
+    }
 
     ret = mixer_ctl_get_array(ctl, buf, num_values);
     if (ret < 0) {
@@ -215,6 +253,11 @@ static void* merge_payload(uint32_t miid, int num, int *sum,  ...)
     uint8_t *buf;
     uint32_t *module_instance_id = NULL;
 
+    if (!size || !temp) {
+        printf("Failed to allocate memory for size and temp\n");
+        return NULL;
+    }
+
     va_start(valist, num);
     for (i = 0; i < num; i++) {
         temp[i] = va_arg(valist, char *);
@@ -236,11 +279,12 @@ static void* merge_payload(uint32_t miid, int num, int *sum,  ...)
         buf += size[i];
     }
     *sum = total_size;
-	/* TODO : free memory */
+    /* TODO : free memory */
     return payload;
 }
 
-void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_intf, unsigned int cap_time, int ec_aif)
+void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_intf, unsigned int cap_time, int ec_aif,
+                    unsigned int device_kv, unsigned int stream_kv, unsigned int instance_kv, unsigned int devicepp_kv)
 {
     struct mixer *mixer;
     char *intf_name = audio_interface_name[audio_intf];
@@ -261,6 +305,7 @@ void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_in
     config.start_threshold = 0;
     config.stop_threshold = 0;
     config.silence_threshold = 0;
+    stream_kv = stream_kv ? stream_kv : VOICE_UI;
 
     mixer = mixer_open(card);
     if (!mixer) {
@@ -276,20 +321,25 @@ void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_in
     }
 
     /* set audio interface metadata mixer control */
-    if (set_agm_audio_intf_metadata(mixer, intf_name, 0, CAPTURE, config.rate, pcm_format_to_bits(format), VOICE_UI)) {
+    if (set_agm_audio_intf_metadata(mixer, intf_name, 0, CAPTURE, config.rate,
+                                    pcm_format_to_bits(format), stream_kv)) {
         printf("Failed to set device metadata\n");
         goto err_close_mixer;
     }
 
     /* set stream metadata mixer control */
-    if (set_agm_stream_metadata(mixer, device, VOICE_UI, CAPTURE, STREAM_PCM, NULL)) {
+    if (set_agm_stream_metadata(mixer, device, stream_kv, CAPTURE, STREAM_PCM,
+                                instance_kv)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }
 
-    if (set_agm_stream_metadata(mixer, device, VOICE_UI, CAPTURE, STREAM_PCM, intf_name)) {
-        printf("Failed to set pcm metadata\n");
-        goto err_close_mixer;
+    if (devicepp_kv != 0) {
+        if (set_agm_streamdevice_metadata(mixer, device, stream_kv, CAPTURE, STREAM_PCM,
+                                intf_name, devicepp_kv)) {
+            printf("Failed to set pcm metadata\n");
+            goto err_close_mixer;
+        }
     }
     /* connect pcm stream to audio intf */
     if (connect_agm_audio_intf_to_stream(mixer, device, intf_name, STREAM_PCM, true)) {
@@ -385,6 +435,10 @@ int main(int argc, char **argv)
     unsigned int audio_intf = 0;
     int ec_aif = -1;
     unsigned int cap_time = 5;
+    unsigned int device_kv = 0;
+    unsigned int devicepp_kv = DEVICEPP_TX_FLUENCE_FFECNS;
+    unsigned int stream_kv = 0;
+    unsigned int instance_kv = INSTANCE_1;
 
     argv += 1;
     while (*argv) {
@@ -420,12 +474,29 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 cap_time = atoi(*argv);
+        } else if (strcmp(*argv, "-dkv") == 0) {
+            argv++;
+            if (*argv)
+                device_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-skv") == 0) {
+            argv++;
+            if (*argv)
+                stream_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-ikv") == 0) {
+            argv++;
+            if (*argv)
+                instance_kv = atoi(*argv);
+        } else if (strcmp(*argv, "-dppkv") == 0) {
+            argv++;
+            if (*argv)
+                devicepp_kv = convert_char_to_hex(*argv);
         }
 
         if (*argv)
             argv++;
     }
 
-    voice_ui_test(card, device, audio_intf, cap_time, ec_aif);
+    voice_ui_test(card, device, audio_intf, cap_time, ec_aif, device_kv, stream_kv,
+                  instance_kv, devicepp_kv);
     return 0;
 }

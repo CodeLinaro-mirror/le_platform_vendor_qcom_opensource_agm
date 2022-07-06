@@ -121,27 +121,30 @@ static int verbose;
 static void usage(void)
 {
 	fprintf(stderr, "usage: cplay [OPTIONS] filename\n"
-		"-c\tcard number\n"
+		"-D\tcard number\n"
 		"-d\tdevice node\n"
 		"-b\tbuffer size\n"
 		"-f\tfragments\n\n"
-                "-i\taudio_intf_id\n"
 		"-v\tverbose mode\n"
-		"-h\tPrints this help list\n\n"
+		"-help\tPrints this help list\n\n"
 		"-t\tcodec type\n\n"
 			"1 : mp3"
 			"2 : aac"
 		"-p\tpause/resume with 2 secs sleep\n\n"
-		"Example:\n"
-		"\tagmcompressplay -c 1 -d 2 test.mp3\n"
-		"\tagmcompressplay -f 5 test.mp3\n");
+		" [-num_intf num of interfaces followed by interface name]\n"
+		" [-i intf_name] : Can be multiple if num_intf is more than 1\n"
+		" [-dkv device_kv] : Can be multiple if num_intf is more than 1\n"
+		" [-dppkv deviceppkv] : Assign 0 if no device pp in the graph\n"
+		" [-ikv instance_kv] :  Assign 0 if no instance kv in the graph\n"
+		" [-skv stream_kv]");
 
 	exit(EXIT_FAILURE);
 }
 
-void play_samples(char *name, unsigned int card, unsigned int device,
-		unsigned long buffer_size, unsigned int frag, unsigned int audio_format,
-        int pause, struct device_config *dev_config);
+void play_samples(char *name, unsigned int card, unsigned int device, unsigned int *device_kv,
+		unsigned int stream_kv, unsigned int instance_kv, unsigned int *devicepp_kv,
+		unsigned long buffer_size, unsigned int frag, unsigned int format,
+		int pause, char **intf_name, int intf_num);
 
 struct mp3_header {
 	uint16_t sync;
@@ -180,7 +183,7 @@ int parse_aac_header(struct adts_header *header, unsigned int *num_channels,
 
 	*num_channels = 2;
 	*sample_rate = aac_sample_rates[sample_rate_idx];
-//	 *size = frame_length - ((protection_absent == 1)? 7: 9));
+//	   *size = frame_length - ((protection_absent == 1)? 7: 9));
 
 	if (verbose)
 		printf("%s: exit sr %d\n", __func__, *sample_rate);
@@ -243,14 +246,19 @@ int main(int argc, char **argv)
 {
 	char *file;
 	unsigned long buffer_size = 0;
-	char *intf_name = NULL;
-	struct device_config config;
-	int ret = 0;
+	char **intf_name = NULL;
+	int ret = 0, i = 0;
 	unsigned int card = 0, device = 0, frag = 0, audio_format = 0, pause = 0;
+	int intf_num = 1;
+	unsigned int *device_kv = 0;
+	unsigned int stream_kv = 0;
+	unsigned int instance_kv = INSTANCE_1;
+	unsigned int *devicepp_kv = NULL;
 
-
-	if (argc < 2)
+	if (argc < 3) {
 		usage();
+		return 1;
+	}
 
 	file = argv[1];
 	/* parse command line arguments */
@@ -264,7 +272,7 @@ int main(int argc, char **argv)
 			argv++;
 			if (*argv)
 				audio_format = atoi(*argv);
-		} else if (strcmp(*argv, "-c") == 0) {
+		} else if (strcmp(*argv, "-D") == 0) {
 			argv++;
 			if (*argv)
 				card = atoi(*argv);
@@ -272,11 +280,70 @@ int main(int argc, char **argv)
 			argv++;
 			if (*argv)
 				pause = atoi(*argv);
-		} else if (strcmp(*argv, "-i") == 0) {
+		} else if (strcmp(*argv, "-f") == 0) {
 			argv++;
 			if (*argv)
-				intf_name = *argv;
+				frag = atoi(*argv);
+		} else if (strcmp(*argv, "-v") == 0) {
+			argv++;
+			if (*argv)
+				verbose = atoi(*argv);
+		} else if (strcmp(*argv, "-num_intf") == 0) {
+					  argv++;
+			if (*argv)
+				intf_num = atoi(*argv);
+		} else if (strcmp(*argv, "-i") == 0) {
+			intf_name = (char**) malloc(intf_num * sizeof(char*));
+			if (!intf_name) {
+				printf("insufficient memory\n");
+				return 1;
+			}
+			for (i = 0; i < intf_num ; i++){
+				argv++;
+				if (*argv)
+					intf_name[i] = *argv;
+			}
+		} else if (strcmp(*argv, "-dkv") == 0) {
+			device_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
+			if (!device_kv) {
+				printf(" insufficient memory\n");
+				return 1;
+			}
+			for (i = 0; i < intf_num ; i++) {
+				argv++;
+				if (*argv) {
+					device_kv[i] = convert_char_to_hex(*argv);
+				}
+			}
+		} else if (strcmp(*argv, "-skv") == 0) {
+			argv++;
+			if (*argv)
+				stream_kv = convert_char_to_hex(*argv);
+		} else if (strcmp(*argv, "-ikv") == 0) {
+			argv++;
+			if (*argv) {
+				instance_kv = atoi(*argv);
+			}
+		} else if (strcmp(*argv, "-dppkv") == 0) {
+			devicepp_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
+			if (!devicepp_kv) {
+				printf(" insufficient memory\n");
+				return 1;
+			}
+			for (i = 0; i < intf_num ; i++) {
+				devicepp_kv[i] = DEVICEPP_RX_AUDIO_MBDRC;
+			}
+			for (i = 0; i < intf_num ; i++)
+			{
+				argv++;
+				if(*argv) {
+					devicepp_kv[i] = convert_char_to_hex(*argv);
+				}
+			}
+		} else if (strcmp(*argv, "-help") == 0) {
+			usage();
 		}
+
 		if (*argv)
 			argv++;
 	}
@@ -284,21 +351,24 @@ int main(int argc, char **argv)
 	if (intf_name == NULL)
 		return 1;
 
-	ret = get_device_media_config(BACKEND_CONF_FILE, intf_name, &config);
-	if (ret) {
-		printf("Invalid input, entry not found for : %s\n", intf_name);
-		return ret;
-	}
-
-	play_samples(file, card, device, buffer_size, frag, audio_format, pause, &config);
+	play_samples(file, card, device, device_kv, stream_kv, instance_kv, devicepp_kv,
+				 buffer_size, frag, audio_format, pause, 
+				 intf_name, intf_num);
 
 	fprintf(stderr, "Finish Playing.... Close Normally\n");
+	if (device_kv)
+		free(device_kv);
+	if (devicepp_kv)
+		free(devicepp_kv);
+	if (intf_name)
+		free(intf_name);
 	exit(EXIT_SUCCESS);
 }
 
-void play_samples(char *name, unsigned int card, unsigned int device,
+void play_samples(char *name, unsigned int card, unsigned int device, unsigned int *device_kv,
+		unsigned int stream_kv, unsigned int instance_kv, unsigned int *devicepp_kv,
 		unsigned long buffer_size, unsigned int frag, unsigned int format,
-        int pause, struct device_config *dev_config)
+		int pause, char **intf_name, int intf_num)
 {
 	struct compr_config config;
 	struct snd_codec codec;
@@ -308,9 +378,25 @@ void play_samples(char *name, unsigned int card, unsigned int device,
 	struct mixer *mixer;
 	FILE *file;
 	char *buffer;
-	int size, num_read, wrote;
+	int num_read, wrote;
 	unsigned int channels = 0, rate = 0, bits = 0;
-	char *intf_name = dev_config->name;
+	struct device_config *dev_config = NULL;
+	struct group_config *grp_config = NULL;
+	int size, index, ret = 0;
+	uint32_t miid = 0;
+
+	dev_config = (struct device_config *) malloc(intf_num * sizeof(struct device_config *));
+	if (!dev_config) {
+		printf("Failed to allocate memory for dev config");
+		return;
+	}
+	grp_config = (struct group_config *) malloc(intf_num * sizeof(struct group_config *));
+	if (!grp_config) {
+		printf("Failed to allocate memory for group config");
+		return;
+	}
+
+	stream_kv = stream_kv ? stream_kv : COMPRESSED_OFFLOAD_PLAYBACK;
 
 	if (verbose)
 		printf("%s: entry\n", __func__);
@@ -378,41 +464,75 @@ void play_samples(char *name, unsigned int card, unsigned int device,
 		printf("Failed to open mixer\n");
 		goto FILE_EXIT;
 	}
+	for (index = 0; index < intf_num; index++) {
+		ret = get_device_media_config(BACKEND_CONF_FILE, intf_name[index], &dev_config[index]);
+		if (ret) {
+			printf("Invalid input, entry not found for : %s\n", intf_name[index]);
+			fclose(file);
+		}
+		printf("Backend %s rate ch bit : %d, %d, %d\n", intf_name[index],
+			dev_config[index].rate, dev_config[index].ch, dev_config[index].bits);
 
-	/* set device/audio_intf media config mixer control */
-	if (set_agm_device_media_config(mixer, dev_config->ch, dev_config->rate,
-                                    dev_config->bits, intf_name)) {
-		printf("Failed to set device media config\n");
-		goto MIXER_EXIT;
+		/* set device/audio_intf media config mixer control */
+		if (set_agm_device_media_config(mixer, dev_config[index].ch, dev_config[index].rate,
+						dev_config[index].bits, intf_name[index])) {
+			printf("Failed to set device media config\n");
+			goto MIXER_EXIT;
+		}
+
+		/* set audio interface metadata mixer control */
+		if (set_agm_audio_intf_metadata(mixer, intf_name[index], device_kv[index], PLAYBACK,
+						dev_config[index].rate, dev_config[index].bits, stream_kv)) {
+			printf("Failed to set device metadata\n");
+			goto MIXER_EXIT;
+		}
 	}
 
 	/* set audio interface metadata mixer control */
-	if (set_agm_audio_intf_metadata(mixer, intf_name, 0, PLAYBACK,
-                                    dev_config->rate, dev_config->bits, COMPRESSED_OFFLOAD_PLAYBACK)) {
-		printf("Failed to set device metadata\n");
-		goto MIXER_EXIT;
-	}
-
-	/* set audio interface metadata mixer control */
-	if (set_agm_stream_metadata(mixer, device, COMPRESSED_OFFLOAD_PLAYBACK, PLAYBACK, STREAM_COMPRESS, NULL)) {
+	if (set_agm_stream_metadata(mixer, device, stream_kv, PLAYBACK, STREAM_COMPRESS, instance_kv)) {
 		printf("Failed to set stream metadata\n");
 		goto MIXER_EXIT;
 	}
 
 	/* Note:  No common metadata as of now*/
+	for (index = 0; index < intf_num; index++) {
+		 if (devicepp_kv[index] != 0) {
+			 if (set_agm_streamdevice_metadata(mixer, device, stream_kv, PLAYBACK, STREAM_COMPRESS,
+						 intf_name[index], devicepp_kv[index])) {
+				 printf("Failed to set pcm metadata\n");
+				 goto MIXER_EXIT;
+			 }
+		 }
 
-	/* connect stream to audio intf */
-	if (connect_agm_audio_intf_to_stream(mixer, device, intf_name, STREAM_COMPRESS, true)) {
-		printf("Failed to connect stream to audio interface\n");
-		goto MIXER_EXIT;
+		/* connect stream to audio intf */
+		if (connect_agm_audio_intf_to_stream(mixer, device, intf_name[index], STREAM_COMPRESS, true)) {
+			printf("Failed to connect pcm to audio interface\n");
+			goto MIXER_EXIT;
+		}
+
+		ret = agm_mixer_get_miid (mixer, device, intf_name[index], STREAM_PCM, PER_STREAM_PER_DEVICE_MFC, &miid);
+		if (ret) {
+			printf("MFC not present for this graph\n");
+		} else {
+			if (configure_mfc(mixer, device, intf_name[index], PER_STREAM_PER_DEVICE_MFC,
+						   STREAM_COMPRESS, dev_config[index].rate, dev_config[index].ch,
+						   dev_config[index].bits, miid)) {
+				printf("Failed to configure pspd mfc\n");
+				goto MIXER_EXIT;
+			}
+		}
+
+		if (strstr(intf_name[index], "VIRT-")) {
+			if (get_group_device_info(BACKEND_CONF_FILE, intf_name[index], &grp_config[index]))
+				goto MIXER_EXIT;
+
+			if (set_agm_group_device_config(mixer, intf_name[index], &grp_config[index])) {
+				printf("Failed to set grp device config\n");
+				goto MIXER_EXIT;
+			}
+		}
 	}
 
-	if (configure_mfc(mixer, device, intf_name, PER_STREAM_PER_DEVICE_MFC,
-			STREAM_COMPRESS, dev_config->rate, dev_config->ch,
-			dev_config->bits)) {
-		printf("Failed to configure pspd mfc\n");
-		goto MIXER_EXIT;
-	}
 
 	compress = compress_open(card, device, COMPRESS_IN, &config);
 	if (!compress || !is_compress_ready(compress)) {
@@ -423,6 +543,14 @@ void play_samples(char *name, unsigned int card, unsigned int device,
 	};
 	if (verbose)
 		printf("%s: Opened compress device\n", __func__);
+
+	for (index = 0; index < intf_num; index++) {
+		if (strstr(intf_name[index], "VIRT-") || (device_kv[index] == SPEAKER) || (device_kv[index] == HANDSET)) {
+			if (set_agm_group_mux_config(mixer, device, &grp_config[index], intf_name[index], dev_config[index].ch)) {
+				printf("Failed to set grp device config\n");
+			}
+		}
+	}
 	size = config.fragment_size;
 	buffer = malloc(size * config.fragments);
 	if (!buffer) {
@@ -487,7 +615,9 @@ void play_samples(char *name, unsigned int card, unsigned int device,
 	/* issue drain if it supports */
 	compress_drain(compress);
 	/* disconnect stream to audio intf */
-	connect_agm_audio_intf_to_stream(mixer, device, intf_name, STREAM_COMPRESS, false);
+	for(index = 0; index < intf_num; index++) {
+		connect_agm_audio_intf_to_stream(mixer, device, intf_name[index], STREAM_COMPRESS, false);
+	}
 	free(buffer);
 	fclose(file);
 	compress_close(compress);
@@ -495,10 +625,12 @@ void play_samples(char *name, unsigned int card, unsigned int device,
 BUF_EXIT:
 	free(buffer);
 COMP_EXIT:
-	/* disconnect stream to audio intf */
-	connect_agm_audio_intf_to_stream(mixer, device, intf_name, STREAM_COMPRESS, false);
 	compress_close(compress);
 MIXER_EXIT:
+	if (dev_config)
+		free(dev_config);
+	if (grp_config)
+		free(grp_config);
 	mixer_close(mixer);
 FILE_EXIT:
 	fclose(file);
@@ -506,4 +638,3 @@ FILE_EXIT:
 		printf("%s: exit failure\n", __func__);
 	exit(EXIT_FAILURE);
 }
-

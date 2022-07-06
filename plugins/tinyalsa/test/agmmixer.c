@@ -27,6 +27,42 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
+/*
+* Changes from Qualcomm Innovation Center are provided under the following license:
+*
+* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted (subject to the limitations in the
+* disclaimer below) provided that the following conditions are met:
+*
+*    * Redistributions of source code must retain the above copyright
+*      notice, this list of conditions and the following disclaimer.
+*
+*    * Redistributions in binary form must reproduce the above
+*      copyright notice, this list of conditions and the following
+*      disclaimer in the documentation and/or other materials provided
+*      with the distribution.
+*
+*    * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
+*      contributors may be used to endorse or promote products derived
+*      from this software without specific prior written permission.
+*
+* NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+* GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+* HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+* WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+* IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+* GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+* INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+* IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+* OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+* IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include <errno.h>
 #include <expat.h>
 #include <tinyalsa/asoundlib.h>
@@ -88,24 +124,27 @@ struct detection_engine_generic_event_cfg {
 
 
 struct gsl_module_id_info_entry {
-	uint32_t module_id; /**< module id */
-	uint32_t module_iid; /**< globally unique module instance id */
+    uint32_t module_id; /**< module id */
+    uint32_t module_iid; /**< globally unique module instance id */
 };
 
 /**
  * Structure mapping the tag_id to module info (mid and miid)
  */
 struct gsl_tag_module_info_entry {
-	uint32_t tag_id; /**< tag id of the module */
-	uint32_t num_modules; /**< number of modules matching the tag_id */
-	struct gsl_module_id_info_entry module_entry[0]; /**< module list */
+    uint32_t tag_id; /**< tag id of the module */
+    uint32_t num_modules; /**< number of modules matching the tag_id */
+    struct gsl_module_id_info_entry module_entry[0]; /**< module list */
 };
 
 struct gsl_tag_module_info {
-	uint32_t num_tags; /**< number of tags */
-	struct gsl_tag_module_info_entry tag_module_entry[0];
-	/**< variable payload of type struct gsl_tag_module_info_entry */
+    uint32_t num_tags; /**< number of tags */
+    struct gsl_tag_module_info_entry tag_module_entry[0];
+    /**< variable payload of type struct gsl_tag_module_info_entry */
 };
+
+unsigned int slot_mask_map[5] = { 0, SLOT_MASK1, SLOT_MASK3, SLOT_MASK7, SLOT_MASK15};
+
 
 #define PADDING_8BYTE_ALIGN(x)  ((((x) + 7) & 7) ^ 7)
 
@@ -367,7 +406,7 @@ done:
     return ret;
 }
 
-int set_agm_group_mux_config(struct mixer *mixer, unsigned int device, struct group_config *config, char *intf_name)
+int set_agm_group_mux_config(struct mixer *mixer, unsigned int device, struct group_config *config, char *intf_name, unsigned int channels)
 {
     char *stream = "PCM";
     char *control = "setParamTag";
@@ -376,6 +415,7 @@ int set_agm_group_mux_config(struct mixer *mixer, unsigned int device, struct gr
     int ctl_len = 0, val_len;
     int ret = 0;
     struct agm_tag_config* tag_config = NULL;
+    uint32_t miid = 0;
 
     ret = set_agm_stream_metadata_type(mixer, device, intf_name, STREAM_PCM);
     if (ret)
@@ -403,7 +443,11 @@ int set_agm_group_mux_config(struct mixer *mixer, unsigned int device, struct gr
     tag_config->tag = TAG_DEVICE_MUX;
     tag_config->num_tkvs = 1;
     tag_config->kv[0].key = TAG_KEY_SLOT_MASK;
-    tag_config->kv[0].value = config->slot_mask;
+    ret = agm_mixer_get_miid(mixer, device, intf_name, STREAM_PCM, TAG_DEVICE_MUX, &miid);
+    if (ret)
+        tag_config->kv[0].value = config->slot_mask;
+    else
+        tag_config->kv[0].value = slot_mask_map[channels];
 
     mixer_ctl_set_array(ctl, tag_config, val_len);
 done:
@@ -574,7 +618,7 @@ int set_agm_audio_intf_metadata(struct mixer *mixer, char *intf_name, unsigned i
     struct agm_key_value *gkv = NULL, *ckv = NULL;
     struct prop_data *prop = NULL;
     uint8_t *metadata = NULL;
-    uint32_t num_gkv = 1, num_ckv = 2, num_props = 0;
+    uint32_t num_gkv = 1, num_ckv = 3, num_props = 0;
     uint32_t gkv_size, ckv_size, prop_size, ckv_index = 0;
     int ctl_len = 0, offset = 0;
     int ret = 0;
@@ -607,7 +651,7 @@ int set_agm_audio_intf_metadata(struct mixer *mixer, char *intf_name, unsigned i
         gkv[0].value = HAPTICS_DEVICE;
     } else if (val == VOICE_UI) {
         gkv[0].key = DEVICETX;
-        gkv[0].value = HANDSETMIC_VA;
+        gkv[0].value = dkv ? dkv : HANDSETMIC_VA;
     } else {
         gkv[0].key = DEVICETX;
         gkv[0].value = dkv ? dkv : HANDSETMIC;
@@ -618,6 +662,10 @@ int set_agm_audio_intf_metadata(struct mixer *mixer, char *intf_name, unsigned i
     ckv_index++;
     ckv[ckv_index].key = BITWIDTH;
     ckv[ckv_index].value = bitwidth;
+
+    ckv_index++;
+    ckv[ckv_index].key = GAIN;;
+    ckv[ckv_index].value = 0;
 
     prop->prop_id = 0;  //Update prop_id here
     prop->num_values = num_props;
@@ -743,21 +791,14 @@ void populateChannelMap(uint16_t *pcmChannel, uint8_t numChannel)
 
 int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag,
                   enum stream_type stype, unsigned int rate,
-                  unsigned int channels, unsigned int bits)
+                  unsigned int channels, unsigned int bits, uint32_t miid)
 {
     int ret = 0;
-    uint32_t miid = 0;
     struct apm_module_param_data_t* header = NULL;
     struct param_id_mfc_output_media_fmt_t *mfcConf;
     uint16_t* pcmChannel = NULL;
     uint8_t* payloadInfo = NULL;
     size_t payloadSize = 0, padBytes = 0, size;
-
-    ret = agm_mixer_get_miid(mixer, device, intf_name, stype, tag, &miid);
-    if (ret) {
-        printf("%s Get MIID from tag data failed\n", __func__);
-        return ret;
-    }
 
     payloadSize = sizeof(struct apm_module_param_data_t) +
                   sizeof(struct param_id_mfc_output_media_fmt_t) +
@@ -792,7 +833,7 @@ int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag,
 }
 
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
-     enum stream_type stype, unsigned int dev_channels)
+                                    enum stream_type stype, unsigned int instance_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -801,10 +842,17 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
     uint8_t *metadata = NULL;
     struct agm_key_value *gkv = NULL, *ckv = NULL;
     struct prop_data *prop = NULL;
-    uint32_t num_gkv = 2, num_ckv = 1, num_props = 0;
+    uint32_t num_gkv = 1, num_ckv = 1, num_props = 0;
     uint32_t gkv_size, ckv_size, prop_size, index = 0;
     int ctl_len = 0, ret = 0, offset = 0;
     char *type = "ZERO";
+
+    ret = set_agm_stream_metadata_type(mixer, device, type, stype);
+    if (ret)
+        return ret;
+
+    if (instance_kv != 0)
+       num_gkv += 1;
 
     gkv_size = num_gkv * sizeof(struct agm_key_value);
     ckv_size = num_ckv * sizeof(struct agm_key_value);
@@ -830,9 +878,11 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
     gkv[index].value = val;
     index++;
 
-    gkv[index].key = INSTANCE;
-    gkv[index].value = INSTANCE_1;
-    index++;
+    if (instance_kv != 0) {
+        gkv[index].key = INSTANCE;
+        gkv[index].value = instance_kv;
+        index++;
+    }
 
     index = 0;
     ckv[index].key = VOLUME;
@@ -878,22 +928,20 @@ done:
     return ret;
 }
 
-int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase, enum stream_type stype, char *intf_name)
+int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
+                                  enum stream_type stype, char *intf_name,
+                                  unsigned int devicepp_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
     char *mixer_str;
     struct mixer_ctl *ctl;
     uint8_t *metadata = NULL;
-    struct agm_key_value *gkv = NULL, *ckv = NULL;
-    struct prop_data *prop = NULL;
-    uint32_t num_gkv = 2, num_ckv = 1, num_props = 0;
-    uint32_t gkv_size, ckv_size, prop_size, index = 0;
+    struct agm_key_value *gkv = NULL;
+    uint32_t num_gkv = 2;
+    uint32_t gkv_size, index = 0;
     int ctl_len = 0, ret = 0, offset = 0;
-    char *type = "ZERO";
-
-    if (intf_name)
-        type = intf_name;
+    char *type = intf_name;
 
     ret = set_agm_stream_metadata_type(mixer, device, type, stype);
     if (ret)
@@ -902,17 +950,100 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     if (stype == STREAM_COMPRESS)
         stream = "COMPRESS";
 
-    if (val == PCM_LL_PLAYBACK || val == COMPRESSED_OFFLOAD_PLAYBACK || val == PCM_RECORD)
-        num_gkv += 1;
+    gkv_size = num_gkv * sizeof(struct agm_key_value);
 
-    if (val == HAPTICS_PLAYBACK)
-        num_gkv = 1;
+    metadata = calloc(1, sizeof(num_gkv) +  gkv_size);
+    if (!metadata)
+        return -ENOMEM;
+
+    gkv = calloc(num_gkv, sizeof(struct agm_key_value));
+    if (!gkv) {
+        free(metadata);
+        return -ENOMEM;
+    }
+    if (val == VOICE_UI) {
+        gkv[index].key = STREAMTX;
+        gkv[index].value = val;
+        index++;
+    } else if (usecase == PLAYBACK) {
+        gkv[index].key = STREAMRX;
+        gkv[index].value = val;
+        index++;
+    } else if (usecase == CAPTURE) {
+        gkv[index].key = STREAMTX;
+        gkv[index].value = val;
+        index++;
+    }
+    if (val == VOICE_UI) {
+        gkv[index].key = DEVICEPP_TX;
+        gkv[index].value = devicepp_kv;
+        index++;
+    } else if (usecase == PLAYBACK) {
+        gkv[index].key = DEVICEPP_RX;
+        gkv[index].value = devicepp_kv;
+        index++;
+    } else if (usecase == CAPTURE) {
+        gkv[index].key = DEVICEPP_TX;
+        gkv[index].value = devicepp_kv;
+        index++;
+    }
+
+    memcpy(metadata, &num_gkv, sizeof(num_gkv));
+    offset += sizeof(num_gkv);
+    memcpy(metadata + offset, gkv, gkv_size);
+    offset += gkv_size;
+
+    ctl_len = strlen(stream) + 4 + strlen(control) + 1;
+    mixer_str = calloc(1, ctl_len);
+    if (!mixer_str) {
+        free(metadata);
+        return -ENOMEM;
+    }
+    snprintf(mixer_str, ctl_len, "%s%d %s", stream, device, control);
+    ctl = mixer_get_ctl_by_name(mixer, mixer_str);
+    if (!ctl) {
+        printf("Invalid mixer control: %s\n", mixer_str);
+        free(gkv);
+        free(metadata);
+        free(mixer_str);
+        return ENOENT;
+    }
+
+    ret = mixer_ctl_set_array(ctl, metadata, sizeof(num_gkv) + gkv_size);
+
+    free(gkv);
+    free(metadata);
+    free(mixer_str);
+    return ret;
+}
+
+int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
+                            enum stream_type stype, unsigned int instance_kv)
+{
+    char *stream = "PCM";
+    char *control = "metadata";
+    char *mixer_str;
+    struct mixer_ctl *ctl;
+    uint8_t *metadata = NULL;
+    struct agm_key_value *gkv = NULL, *ckv = NULL;
+    struct prop_data *prop = NULL;
+    uint32_t num_gkv = 1, num_ckv = 1, num_props = 0;
+    uint32_t gkv_size, ckv_size, prop_size, index = 0;
+    int ctl_len = 0, ret = 0, offset = 0;
+    char *type = "ZERO";
+
+    ret = set_agm_stream_metadata_type(mixer, device, type, stype);
+    if (ret)
+        return ret;
+
+    if (stype == STREAM_COMPRESS)
+        stream = "COMPRESS";
+
+    if (instance_kv != 0)
+       num_gkv += 1;
 
     if (val == VOICE_UI) {
-        if (intf_name)
-            num_gkv = 2;
-        else
-            num_gkv = 3;
+        num_gkv = 3;
     }
 
     gkv_size = num_gkv * sizeof(struct agm_key_value);
@@ -936,48 +1067,31 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     }
 
     if (val == VOICE_UI) {
-        if (intf_name) {
-            gkv[index].key = DEVICEPP_TX;
-            gkv[index].value = DEVICEPP_TX_FLUENCE_FFECNS;
-            index++;
-            gkv[index].key = DEVICETX;
-            gkv[index].value = HANDSETMIC;
-            index++;
-        } else {
-            gkv[index].key = STREAMTX;
-            gkv[index].value = val;
-            index++;
+        gkv[index].key = STREAMTX;
+        gkv[index].value = val;
+        index++;
+        if (instance_kv != 0){
             gkv[index].key = INSTANCE;
-            gkv[index].value = INSTANCE_1;
-            index++;
-            gkv[index].key = STREAM_CONFIG;
-            gkv[index].value = STREAM_CFG_VUI_SVA;
+            gkv[index].value = instance_kv;
             index++;
         }
-    } else {
-        if (usecase == PLAYBACK)
-            gkv[index].key = STREAMRX;
-        else
-            gkv[index].key = STREAMTX;
-
+        gkv[index].key = STREAM_CONFIG;
+        gkv[index].value = STREAM_CFG_VUI_SVA;
+        index++;
+    } else if (usecase == PLAYBACK) {
+        gkv[index].key = STREAMRX;
         gkv[index].value = val;
 
         index++;
-        if (val == PCM_LL_PLAYBACK || val == COMPRESSED_OFFLOAD_PLAYBACK ||
-            val == PCM_RECORD) {
+        if (instance_kv != 0) {
             printf("Instance key is added\n");
             gkv[index].key = INSTANCE;
-            gkv[index].value = INSTANCE_1;
+            gkv[index].value = instance_kv;
             index++;
         }
-
-        if (usecase == PLAYBACK  && val != HAPTICS_PLAYBACK) {
-            gkv[index].key = DEVICEPP_RX;
-            gkv[index].value = DEVICEPP_RX_AUDIO_MBDRC;
-        } else if (val != HAPTICS_PLAYBACK) {
-            gkv[index].key = DEVICEPP_TX;
-            gkv[index].value = DEVICEPP_TX_AUDIO_FLUENCE_SMECNS;
-        }
+    } else if (usecase == LOOPBACK) {
+        gkv[index].key = STREAMRX;
+        gkv[index].value = val;
     }
 
     index = 0;

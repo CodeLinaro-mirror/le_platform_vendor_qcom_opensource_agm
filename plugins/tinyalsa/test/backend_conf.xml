@@ -87,14 +87,14 @@
     <device name="MI2S-LPAIF_VA-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_WSA-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_WSA-TX-PRIMARY" rate="48000" ch="1" bits="16" />
-    <device name="TDM-LPAIF-RX-PRIMARY" rate="48000" ch="1" bits="16" />
-    <device name="TDM-LPAIF-TX-PRIMARY" rate="48000" ch="1" bits="16" />
+    <device name="TDM-LPAIF-RX-PRIMARY" rate="48000" ch="8" bits="16" />
+    <device name="TDM-LPAIF-TX-PRIMARY" rate="48000" ch="8" bits="16" />
     <device name="TDM-LPAIF_AUD-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF_AUD-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF-RX-TERTIARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF-TX-TERTIARY" rate="48000" ch="1" bits="16" />
-    <device name="TDM-LPAIF_RXTX-RX-PRIMARY" rate="48000" ch="1" bits="16" />
-    <device name="TDM-LPAIF_RXTX-TX-PRIMARY" rate="48000" ch="1" bits="16" />
+    <device name="TDM-LPAIF_RXTX-RX-PRIMARY" rate="48000" ch="8" bits="16" />
+    <device name="TDM-LPAIF_RXTX-TX-PRIMARY" rate="48000" ch="8" bits="16" />
     <device name="TDM-LPAIF_VA-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF_VA-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF_WSA-RX-PRIMARY" rate="48000" ch="1" bits="16" />

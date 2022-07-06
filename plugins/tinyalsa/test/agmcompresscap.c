@@ -135,16 +135,6 @@ static const struct wave_header blank_wave_header = {
 	},
 };
 
-char *audio_interface_name[] = {
-    "CODEC_DMA-LPAIF_VA-TX-0",
-    "CODEC_DMA-LPAIF_VA-TX-1",
-    "MI2S-LPAIF_AXI-TX-PRIMARY",
-    "TDM-LPAIF_AXI-TX-PRIMARY",
-    "AUXPCM-LPAIF_AXI-TX-PRIMARY",
-    "SLIM-DEV1-TX-0",
-    "USB_AUDIO-TX",
-};
-
 static void init_wave_header(struct wave_header *header, uint16_t channels,
 			     uint32_t rate, uint16_t samplebits)
 {
@@ -167,22 +157,18 @@ static void size_wave_header(struct wave_header *header, uint32_t size)
 static void usage(void)
 {
 	fprintf(stderr, "usage: crec [OPTIONS] [filename]\n"
-		"-c\tcard number\n"
+		"-D\tcard number\n"
 		"-d\tdevice node\n"
-		"-b\tbuffer size\n"
+		"-buf\tbuffer size\n"
 		"-f\tfragments\n"
 		"-v\tverbose mode\n"
 		"-l\tlength of record in seconds\n"
-		"-h\tPrints this help list\n\n"
-		"-C\tSpecify the number of channels (default %u)\n"
-		"-R\tSpecify the sample rate (default %u)\n"
-		"-F\tSpecify the format: S16_LE, S32_LE (default S16_LE)\n\n"
-		"If filename is not given the output is\n"
-		"written to stdout\n\n"
-		"Example:\n"
-		"\tcrec -c 1 -d 2 test.wav\n"
-		"\tcrec -f 5 test.wav\n",
-		DEFAULT_CHANNELS, DEFAULT_RATE);
+		" [-help print usage]\n"
+		" [-c channels] [-r rate] [-b bits]\n"
+		" [-n n_periods] [-i intf_name] [-dkv device_kv]\n"
+		" [-dppkv deviceppkv] : Assign 0 if no device pp in the graph\n"
+		" [-ikv instance_kv] :  Assign 0 if no instance kv in the graph\n"
+		" [-skv stream_kv]");
 
 	exit(EXIT_FAILURE);
 }
@@ -252,7 +238,8 @@ static int finish_record(void)
 static void capture_samples(char *name, unsigned int card, unsigned int device,
 		     unsigned long buffer_size, unsigned int frag,
 		     unsigned int length, unsigned int rate,
-		     unsigned int channels, unsigned int format, unsigned int intf)
+		     unsigned int channels, unsigned int format, struct device_config *dev_config, unsigned int stream_kv,
+		     unsigned int device_kv, unsigned int instance_kv, unsigned int devicepp_kv)
 {
 	struct compr_config config;
 	struct snd_codec codec;
@@ -264,7 +251,10 @@ static void capture_samples(char *name, unsigned int card, unsigned int device,
 	int read, ret;
 	unsigned int size, total_read = 0;
 	unsigned int samplebits;
-	char *intf_name = audio_interface_name[intf];
+	uint32_t miid = 0;
+	char *intf_name = dev_config->name;
+	//TODO: Change default stream_kv to COMPRESS_RECORD later.
+	stream_kv = stream_kv ? stream_kv : PCM_RECORD;
 
 	switch (format) {
 	case SNDRV_PCM_FORMAT_S32_LE:
@@ -282,6 +272,7 @@ static void capture_samples(char *name, unsigned int card, unsigned int device,
 		fprintf(finfo, "%s: entry, reading %u bytes\n", __func__, length);
         if (!name) {
                 file = STDOUT_FILENO;
+		exit(EXIT_FAILURE);
         } else {
 	        file = open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 	        if (file == -1) {
@@ -325,22 +316,42 @@ static void capture_samples(char *name, unsigned int card, unsigned int device,
 	}
 
 	/* set device/audio_intf media config mixer control */
-	if (set_agm_device_media_config(mixer, channels, rate, samplebits, intf_name)) {
+	if (set_agm_device_media_config(mixer, dev_config->ch, dev_config->rate, dev_config->bits, intf_name)) {
 		printf("Failed to set device media config\n");
 		goto mixer_exit;
 	}
 
 	/* set audio interface metadata mixer control */
-	if (set_agm_audio_intf_metadata(mixer, intf_name, 0, CAPTURE, rate, samplebits, PCM_RECORD)) {
+	if (set_agm_audio_intf_metadata(mixer, intf_name, device_kv, CAPTURE,
+					dev_config->rate, dev_config->bits, stream_kv)) {
 		printf("Failed to set device metadata\n");
 		goto mixer_exit;
 	}
 
 	/* set audio interface metadata mixer control */
         /* Change pcm_record to compress_record */
-	if (set_agm_stream_metadata(mixer, device, PCM_RECORD, CAPTURE, STREAM_COMPRESS, NULL)) {
-		printf("Failed to set stream metadata\n");
+	if (set_agm_capture_stream_metadata(mixer, device, stream_kv, CAPTURE, STREAM_COMPRESS, instance_kv)) {
+		printf("Failed to set pcm metadata\n");
 		goto mixer_exit;
+	}
+
+	if (devicepp_kv != 0) {
+		if (set_agm_streamdevice_metadata(mixer, device, stream_kv, CAPTURE, STREAM_COMPRESS,
+						 intf_name, devicepp_kv)) {
+			printf("Failed to set pcm metadata\n");
+			goto mixer_exit;
+		}
+	}
+
+	ret = agm_mixer_get_miid (mixer, device, intf_name, STREAM_COMPRESS, TAG_STREAM_MFC, &miid);
+	if (ret) {
+		printf("MFC not present for this graph");
+	} else {
+		if (configure_mfc(mixer, device, intf_name, TAG_STREAM_MFC,
+				 STREAM_COMPRESS, rate, channels, pcm_format_to_bits(format), miid)) {
+			printf("Failed to configure pspd mfc\n");
+			goto mixer_exit;
+		}
 	}
 
 	/* Note:  No common metadata as of now*/
@@ -459,85 +470,118 @@ int main(int argc, char **argv)
 {
 	char *file;
 	unsigned long buffer_size = 0;
-	int c;
 	unsigned int card = 0, device = 0, frag = 0, length = 0;
 	unsigned int rate = DEFAULT_RATE, channels = DEFAULT_CHANNELS;
+	unsigned int bits = 16;
 	unsigned int format = DEFAULT_FORMAT;
-	unsigned int audio_intf;
+	char* intf_name;
+	int ret = 0;
+	unsigned int devicepp_kv = DEVICEPP_TX_AUDIO_FLUENCE_SMECNS;
+	unsigned int stream_kv = 0;
+	unsigned int instance_kv = INSTANCE_1;
+	struct device_config config;
+	unsigned int device_kv = 0;
 
 	if (signal(SIGINT, sig_handler) == SIG_ERR) {
 		fprintf(stderr, "Error registering signal handler\n");
 		exit(EXIT_FAILURE);
 	}
 
-	if (argc < 1)
+	if (argc < 3)
 		usage();
 
 	verbose = 0;
-	while ((c = getopt(argc, argv, "hvl:R:C:F:b:f:c:d:i:")) != -1) {
-		switch (c) {
-		case 'h':
+
+	file = argv[1];
+	/* parse command line arguments */
+	argv += 2;
+	while (*argv) {
+		if (strcmp(*argv, "-d") == 0) {
+			argv++;
+			if (*argv)
+				device = atoi(*argv);
+		} else if (strcmp(*argv, "-c") == 0) {
+			argv++;
+			if (*argv)
+				channels = atoi(*argv);
+		} else if (strcmp(*argv, "-r") == 0) {
+			argv++;
+			if (*argv)
+				rate = atoi(*argv);
+		} else if (strcmp(*argv, "-b") == 0) {
+			argv++;
+			if (*argv)
+				bits = atoi(*argv);
+		} else if (strcmp(*argv, "-D") == 0) {
+			argv++;
+			if (*argv)
+				card = atoi(*argv);
+		} else if (strcmp(*argv, "-l") == 0) {
+			argv++;
+			if (*argv)
+				length = atoi(*argv);
+		} else if (strcmp(*argv, "-i") == 0) {
+			argv++;
+			if (*argv)
+				intf_name = *argv;
+		} else if (strcmp(*argv, "-dkv") == 0) {
+			argv++;
+			if (*argv)
+				device_kv = convert_char_to_hex(*argv);
+		} else if (strcmp(*argv, "-skv") == 0) {
+			argv++;
+			if (*argv)
+				stream_kv = convert_char_to_hex(*argv);
+		} else if (strcmp(*argv, "-ikv") == 0) {
+			argv++;
+			if (*argv)
+				instance_kv = atoi(*argv);
+		} else if (strcmp(*argv, "-dppkv") == 0) {
+			argv++;
+			if (*argv)
+				devicepp_kv = convert_char_to_hex(*argv);
+		} else if (strcmp(*argv, "-buf") == 0) {
+			argv++;
+			if (*argv)
+				 buffer_size = atoi(*argv);
+		} else if (strcmp(*argv, "-f") == 0) {
+			argv++;
+			if (*argv)
+				frag = atoi(*argv);
+		} else if (strcmp(*argv, "-v") == 0) {
+			argv++;
+			if (*argv)
+				verbose = atoi(*argv);
+		} else if (strcmp(*argv, "-help") == 0) {
 			usage();
-			break;
-		case 'b':
-			buffer_size = strtol(optarg, NULL, 0);
-			break;
-		case 'f':
-			frag = strtol(optarg, NULL, 10);
-			break;
-		case 'c':
-			card = strtol(optarg, NULL, 10);
-			break;
-		case 'd':
-			device = strtol(optarg, NULL, 10);
-			break;
-		case 'v':
-			verbose = 1;
-			break;
-		case 'l':
-			length = strtol(optarg, NULL, 10);
-			break;
-		case 'R':
-			rate = strtol(optarg, NULL, 10);
-			break;
-		case 'C':
-			channels = strtol(optarg, NULL, 10);
-			break;
-		case 'F':
-			if (strcmp(optarg, "S16_LE") == 0) {
-				format = SNDRV_PCM_FORMAT_S16_LE;
-			} else if (strcmp(optarg, "S32_LE") == 0) {
-				format = SNDRV_PCM_FORMAT_S32_LE;
-			} else {
-				fprintf(stderr, "Unrecognised format: %s\n",
-					optarg);
-				usage();
-			}
-			break;
-                case 'i':
-                        audio_intf = strtol(optarg, NULL, 10);
-			break;
-		default:
-			exit(EXIT_FAILURE);
 		}
-	}
-	if (optind >= argc) {
-		file = NULL;
-		finfo = fopen("/dev/null", "w");
-		streamed = true;
-	} else {
-		file = argv[optind];
-		finfo = stdout;
-		streamed = false;
+		if (*argv)
+			argv++;
 	}
 
-        if (audio_intf >= sizeof(audio_interface_name)/sizeof(char *)) {
-                printf("Invalid audio interface index denoted by -i\n");
+	if (intf_name == NULL) {
+		printf("Invalid audio interface index denoted by -i\n");
 		exit(EXIT_FAILURE);
-        }
+	}
 
+	ret = get_device_media_config(BACKEND_CONF_FILE, intf_name, &config);
+	if (ret) {
+		printf("Invalid input, entry not found for %s\n", intf_name);
+		fclose(file);
+		return ret;
+	}
+
+	switch (bits) {
+	case 32:
+		format = SNDRV_PCM_FORMAT_S32_LE;
+		break;
+	default:
+		format = SNDRV_PCM_FORMAT_S16_LE;
+		break;
+	}
 	capture_samples(file, card, device, buffer_size, frag, length,
-			rate, channels, format, audio_intf);
+			rate, channels, format, &config, stream_kv, device_kv, instance_kv,
+			 devicepp_kv);
 
 	fprintf(finfo, "Finish capturing... Close Normally\n");
 

@@ -59,7 +59,7 @@ if !BUILDSYSTEM_OPENWRT
 libagm_la_LIBADD += -laudio_log_utils
 endif
 
-libagm_la_CFLAGS := $(AM_CFLAGS) -DACDB_PATH=\"/etc/acdbdata/\" -DACDB_DELTA_FILE_PATH="/data/audio/delta"
+libagm_la_CFLAGS := $(AM_CFLAGS) -DACDB_PATH=\"/etc/acdbdata/\" -DACDB_DELTA_FILE_PATH="/data/audio/delta" -DLINUX_ENABLED
 if BUILDSYSTEM_OPENWRT
 libagm_la_LIBADD += -lglib-2.0
 endif
