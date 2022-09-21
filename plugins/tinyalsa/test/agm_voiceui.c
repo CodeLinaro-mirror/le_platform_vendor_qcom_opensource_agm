@@ -446,13 +446,11 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 device = atoi(*argv);
-        }
-        if (strcmp(*argv, "-D") == 0) {
+        } else if (strcmp(*argv, "-D") == 0) {
             argv++;
             if (*argv)
                 card = atoi(*argv);
-        }
-        if (strcmp(*argv, "-i") == 0) {
+        } else if (strcmp(*argv, "-i") == 0) {
             argv++;
             if (*argv)
                 audio_intf = atoi(*argv);
@@ -460,8 +458,7 @@ int main(int argc, char **argv)
                 printf("Invalid audio interface index denoted by -i\n");
                 return 1;
             }
-        }
-        if (strcmp(*argv, "-e") == 0) {
+        } else if (strcmp(*argv, "-e") == 0) {
             argv++;
             if (*argv)
                 ec_aif = atoi(*argv);
@@ -469,8 +466,7 @@ int main(int argc, char **argv)
                 printf("Invalid echoref audio interface index denoted by -i\n");
                 return 1;
             }
-        }
-        if (strcmp(*argv, "-T") == 0) {
+        } else if (strcmp(*argv, "-T") == 0) {
             argv++;
             if (*argv)
                 cap_time = atoi(*argv);

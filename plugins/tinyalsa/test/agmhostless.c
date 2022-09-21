@@ -161,6 +161,8 @@ int main(int argc, char **argv)
             argv++;
     }
 
+    if (c_intf_name == NULL)
+        return 1;
     ret = get_device_media_config(BACKEND_CONF_FILE, c_intf_name, &capture_config);
     if (ret) {
         printf("Invalid input, assigning default values for : %s\n", c_intf_name);
@@ -169,6 +171,8 @@ int main(int argc, char **argv)
         capture_config.ch = num_channels;
     }
 
+    if (p_intf_name == NULL)
+        return 1;
     ret = get_device_media_config(BACKEND_CONF_FILE, p_intf_name, &play_config);
     if (ret) {
         printf("Invalid input, assigning default values for : %s\n", p_intf_name);

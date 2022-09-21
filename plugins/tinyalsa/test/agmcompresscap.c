@@ -474,7 +474,7 @@ int main(int argc, char **argv)
 	unsigned int rate = DEFAULT_RATE, channels = DEFAULT_CHANNELS;
 	unsigned int bits = 16;
 	unsigned int format = DEFAULT_FORMAT;
-	char* intf_name;
+	char* intf_name = NULL;
 	int ret = 0;
 	unsigned int devicepp_kv = DEVICEPP_TX_AUDIO_FLUENCE_SMECNS;
 	unsigned int stream_kv = 0;
