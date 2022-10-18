@@ -106,6 +106,38 @@ typedef enum snd_card_status_t {
     SND_CARD_STATUS_NONE,
 } snd_card_status_t;
 
+#define TDM_SLOT_INFO "slot info"
+#define RX_FILTER "-RX-"
+#define TX_FILTER "-TX-"
+
+static char* get_tdm_mixer_name(const char *stream_name)
+{
+   char *mixer_be_name = NULL;
+   int mixer_be_len = 0;
+   char *delimit = NULL;
+   int copy_len = 0;
+
+   if ((delimit = strstr(stream_name, RX_FILTER)) == NULL) {
+           delimit = strstr(stream_name, TX_FILTER);
+   }
+   if (delimit == NULL) {
+           goto error;
+   }
+
+   mixer_be_len = strlen(stream_name) - strlen(RX_FILTER) + 2;
+   mixer_be_name = calloc(1,mixer_be_len);
+   if (!mixer_be_name) {
+           goto error;
+   }
+   copy_len = (delimit - stream_name) * sizeof(char);
+   memcpy(mixer_be_name, stream_name, copy_len);
+   memcpy(mixer_be_name + copy_len, stream_name + copy_len + strlen(RX_FILTER) - 1,
+          strlen(stream_name) - (copy_len + strlen(RX_FILTER) - 1));
+
+error:
+       return mixer_be_name;
+}
+
 int get_pcm_bits_per_sample(enum agm_media_format fmt_id)
 {
      int bits_per_sample = 16;
@@ -872,6 +904,74 @@ done:
     return ret;
 }
 #endif
+
+int device_get_tdm_slot_info(struct device_obj *dev_obj, long **slot_info)
+{
+    struct mixer_ctl *ctl = NULL;
+    char *mixer_str = NULL;
+    int ctl_len = 0, ret = 0, card_id;
+    char *dev_name = NULL;
+    char *dev_mixer_name = NULL;
+    int index = 0;
+
+    if (mixer == NULL) {
+        card_id = device_get_snd_card_id();
+        if (card_id < 0) {
+            AGM_LOGE("failed to get card_id");
+            return -EINVAL;
+        }
+
+        mixer = mixer_open(card_id);
+        if (!mixer) {
+            AGM_LOGE("failed to get mixer handle");
+            return -EINVAL;
+        }
+    }
+
+    if (dev_obj->parent_dev)
+        dev_name = dev_obj->parent_dev->name;
+    else
+        dev_name = dev_obj->name;
+
+    dev_mixer_name = get_tdm_mixer_name(dev_name);
+    if (dev_mixer_name == NULL) {
+        AGM_LOGE("failed to get mixer control\n");
+        ret = -EINVAL;
+        goto done;
+    }
+    ctl_len = strlen(dev_mixer_name) + 1 + strlen(TDM_SLOT_INFO) + 1;
+    mixer_str = calloc(1, ctl_len);
+    if (!mixer_str) {
+        AGM_LOGE("Failed to allocate memory for mixer_str");
+        ret = -ENOMEM;
+        goto free_dev_mixer;
+    }
+    snprintf(mixer_str, ctl_len, "%s %s", dev_mixer_name, TDM_SLOT_INFO);
+
+    ctl = mixer_get_ctl_by_name(mixer, mixer_str);
+    if (!ctl) {
+        AGM_LOGE("Invalid mixer control: %s\n", mixer_str);
+        ret = -ENOENT;
+        goto free_mixer;
+    }
+
+    ret = mixer_ctl_get_array(ctl, *slot_info, 2);
+    if (ret < 0) {
+        AGM_LOGE("Failed to mixer_ctl_get_array\n");
+        goto free_mixer;
+    }
+
+free_mixer:
+    free(mixer_str);
+    mixer_str = NULL;
+
+free_dev_mixer:
+    free(dev_mixer_name);
+    dev_mixer_name = NULL;
+
+done:
+    return ret;
+}
 
 int device_get_start_refcnt(struct device_obj *dev_obj)
 {

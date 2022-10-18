@@ -363,6 +363,7 @@ static int configure_tdm_ep(struct module_info *mod,
     struct param_id_tdm_intf_cfg_t* tdm_config;
     size_t payload_sz, ret_payload_sz = 0;
     uint8_t *payload = NULL;
+    long *tdm_slot_info = NULL;
     struct agm_media_config media_config = (dev_obj->group_data) ?
                           dev_obj->group_data->media_config.config :dev_obj->media_config;
 
@@ -417,7 +418,20 @@ static int configure_tdm_ep(struct module_info *mod,
 
     tdm_config->lpaif_type = hw_ep_info.ep_config.cdc_dma_i2s_tdm_config.lpaif_type;
     tdm_config->intf_idx = hw_ep_info.ep_config.cdc_dma_i2s_tdm_config.intf_idx;
-
+    // tdm_slot_info[0] contains max_slot tdm_slot_info[1] contains slot_width
+    tdm_slot_info = calloc(2, sizeof(long));
+    if (!tdm_slot_info) {
+        AGM_LOGE("Failed to allocate memory for payload");
+        ret = -ENOMEM;
+        goto free_kvp;
+    }
+    ret = device_get_tdm_slot_info(dev_obj, &tdm_slot_info);
+    if (ret != 0) {
+        AGM_LOGE("get tdm slot info failed");
+        goto free_tdm;
+    }
+    tdm_config->nslots_per_frame = tdm_slot_info[0];
+    tdm_config->slot_width = tdm_slot_info[1];
     /* Update slot_mask from AGM only in case of group TDM */
     if (dev_obj->group_data)
         tdm_config->slot_mask = dev_obj->group_data->media_config.slot_mask;
@@ -437,6 +451,10 @@ static int configure_tdm_ep(struct module_info *mod,
         AGM_LOGE("custom_config for module %d failed with error %d",
                       mod->tag, ret);
     }
+
+free_tdm:
+    free(tdm_slot_info);
+    tdm_slot_info = NULL;
 free_kvp:
     free(tag_key_vect.kvp);
 free_payload:

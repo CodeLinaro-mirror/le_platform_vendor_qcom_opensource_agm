@@ -201,4 +201,6 @@ int device_get_group_list(struct aif_info *aif_list, size_t *num_groups);
 
 int device_get_start_refcnt(struct device_obj *dev_obj);
 bool get_file_path_extn(char* file_path_extn);
+
+int device_get_tdm_slot_info(struct device_obj *dev_obj, long **slot_info);
 #endif
