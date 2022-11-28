@@ -1131,7 +1131,7 @@ static int wait_for_snd_card_to_online()
     /* maximum wait period = (MAX_RETRY * RETRY_INTERVAL_US) micro-seconds */
     do {
         if ((fd = open(SNDCARD_PATH, O_RDWR)) < 0) {
-            AGM_LOGE(LOG_TAG, "Failed to open snd sysfs node, will retry for %d times ...", (retries - 1));
+            AGM_LOGE("Failed to open snd sysfs node, will retry for %d times ...", (retries - 1));
         } else {
             memset(buf , 0 ,sizeof(buf));
             lseek(fd,0L,SEEK_SET);
@@ -1144,7 +1144,7 @@ static int wait_for_snd_card_to_online()
             sscanf(buf , "%d", &card_status);
 
             if (card_status == SND_CARD_STATUS_ONLINE) {
-                AGM_LOGV(LOG_TAG, "snd sysfs node open successful");
+                AGM_LOGV("snd sysfs node open successful");
                 break;
             }
         }
@@ -1153,7 +1153,7 @@ static int wait_for_snd_card_to_online()
     } while ( retries > 0);
 
     if (0 == retries) {
-        AGM_LOGE(LOG_TAG, "Failed to open snd sysfs node, exiting ... ");
+        AGM_LOGE("Failed to open snd sysfs node, exiting ... ");
         ret = -EIO;
     }
 
