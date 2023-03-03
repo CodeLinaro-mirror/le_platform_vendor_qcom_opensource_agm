@@ -25,6 +25,10 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #define LOG_TAG "AGM: graph_module"
@@ -108,6 +112,25 @@ static void get_default_channel_map(uint8_t *channel_map, int channels)
          channel_map[5] = PCM_CHANNEL_RB;
          channel_map[6] = PCM_CHANNEL_LS;
          channel_map[7] = PCM_CHANNEL_RS;
+         break;
+    case CHANNEL_16:
+         channel_map[0] = PCM_CHANNEL_L;
+         channel_map[1] = PCM_CHANNEL_R;
+         channel_map[2] = PCM_CHANNEL_C;
+         channel_map[3] = PCM_CHANNEL_LFE;
+         channel_map[4] = PCM_CHANNEL_LB;
+         channel_map[5] = PCM_CHANNEL_RB;
+         channel_map[6] = PCM_CHANNEL_LS;
+         channel_map[7] = PCM_CHANNEL_RS;
+         channel_map[8] = PCM_CHANNEL_TFL;
+         channel_map[9] = PCM_CHANNEL_TFR;
+         channel_map[10] = PCM_CHANNEL_TSL;
+         channel_map[11] = PCM_CHANNEL_TSR;
+         channel_map[12] = PCM_CHANNEL_FLC;
+         channel_map[13] = PCM_CHANNEL_FRC;
+         channel_map[14] = PCM_CHANNEL_RLC;
+         channel_map[15] = PCM_CHANNEL_RRC;
+         break;
     }
 }
 
