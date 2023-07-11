@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -91,6 +91,9 @@
 #define AGM_PULL_PUSH_IDX_RETRY_COUNT 2
 #define AGM_PULL_PUSH_FRAME_CNT_RETRY_COUNT 5
 
+/* multiplier of timeout for wating for mmap buffers */
+#define MMAP_TOUT_MULTI 4
+
 struct agm_shared_pos_buffer {
     volatile uint32_t frame_counter;
     volatile uint32_t read_index;
@@ -128,6 +131,7 @@ struct agm_pcm_priv {
     snd_pcm_uframes_t total_size_frames;
     /* idx: 0: out port, 1: in port */
     struct agm_mmap_buffer_port mmap_buffer_port[2];
+    uint32_t mmap_buf_tout;
 };
 
 struct pcm_plugin_hw_constraints agm_pcm_constrs = {
@@ -734,6 +738,7 @@ static int agm_pcm_poll(struct pcm_plugin *plugin, struct pollfd *pfd,
     uint32_t period_size = priv->period_size;
     snd_pcm_sframes_t avail;
     int ret = 0;
+    uint32_t period_to_msec = period_size / (priv->media_config->rate / 1000);
 
     avail = agm_pcm_get_avail(plugin);
 
@@ -754,8 +759,16 @@ static int agm_pcm_poll(struct pcm_plugin *plugin, struct pollfd *pfd,
             pfd->revents = POLLOUT;
             ret = POLLOUT;
         }
+        priv->mmap_buf_tout = 0;
     } else {
         ret = 0; /* TIMEOUT */
+        priv->mmap_buf_tout += timeout;
+        if (priv->mmap_buf_tout > (period_to_msec * MMAP_TOUT_MULTI)) {
+            AGM_LOGE("timeout in waiting for mmap buffer");
+            priv->mmap_buf_tout = 0;
+            errno = ETIMEDOUT;
+            return -ETIMEDOUT;
+        }
     }
 
     return ret;
