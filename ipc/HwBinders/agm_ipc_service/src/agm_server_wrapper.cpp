@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -793,6 +793,18 @@ Return<int32_t> AGM::ipc_agm_session_register_for_events(uint32_t session_id,
     ALOGV("%s : session_id = %d\n", __func__, session_id);
     struct agm_event_reg_cfg *evt_reg_cfg_local;
     int32_t ret = 0;
+
+    if (evt_reg_cfg.size() != 1) {
+        ALOGE("%s evt_reg_cfg needs to be of size 1\n", __func__);
+        return -EINVAL;
+    }
+
+    if (evt_reg_cfg.data()->event_config_payload.size() !=
+        evt_reg_cfg.data()->event_config_payload_size) {
+        ALOGE("%s: event_config_payload_size value mismatch\n", __func__);
+        return -EINVAL;
+    }
+
     evt_reg_cfg_local = (struct agm_event_reg_cfg*)
               calloc(1,(sizeof(struct agm_event_reg_cfg) +
               (evt_reg_cfg.data()->event_config_payload_size)*sizeof(uint8_t)));
