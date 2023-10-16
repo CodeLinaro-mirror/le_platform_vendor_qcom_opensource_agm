@@ -25,7 +25,7 @@
 <!--  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN  -->
 <!--  IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.                           -->
 <!-- Changes from Qualcomm Innovation Center are provided under the following license:-->
-<!-- Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.         -->
+<!-- Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.         -->
 <!--                                                                                  -->
 <!-- Redistribution and use in source and binary forms, with or without               -->
 <!-- modification, are permitted (subject to the limitations in the                   -->
@@ -375,6 +375,45 @@
             <playback>1</playback>
             <capture>0</capture>
             <hostless>1</hostless>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+
+    <pcm-device>
+        <id>126</id>
+        <name>PCM126</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>0</playback>
+            <capture>1</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+
+    <pcm-device>
+        <id>127</id>
+        <name>PCM127</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>1</playback>
+            <capture>0</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+
+    <pcm-device>
+        <id>128</id>
+        <name>PCM128</name>
+        <pcm_plugin>
+           <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>0</playback>
+            <capture>1</capture>
             <session_mode>1</session_mode>
         </props>
     </pcm-device>
