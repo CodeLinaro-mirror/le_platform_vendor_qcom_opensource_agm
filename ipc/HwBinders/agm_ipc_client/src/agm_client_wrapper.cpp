@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -643,10 +643,7 @@ int agm_session_register_for_events(uint32_t session_id,
     if (!agm_server_died) {
         android::sp<IAGM> agm_client = get_agm_server();
 
-        hidl_vec<AgmEventRegCfg> evt_reg_cfg_hidl;
-        size_t size_local = sizeof(struct agm_event_reg_cfg) +
-                      (evt_reg_cfg->event_config_payload_size);
-        evt_reg_cfg_hidl.resize(size_local);
+        hidl_vec<AgmEventRegCfg> evt_reg_cfg_hidl(1);
 
         evt_reg_cfg_hidl.data()->module_instance_id = evt_reg_cfg->module_instance_id;
         evt_reg_cfg_hidl.data()->event_id = evt_reg_cfg->event_id;
