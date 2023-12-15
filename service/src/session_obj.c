@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,6 +25,10 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: session"
 
@@ -533,7 +536,7 @@ static int session_disconnect_aif(struct session_obj *sess_obj,
                       audio interface id:%d \n",
                        sess_obj->sess_id, aif_obj->aif_id);
         ret = -ENOMEM;
-        return ret;
+        goto done;
     }
 
     pthread_mutex_lock(&hwep_lock);
@@ -550,7 +553,7 @@ static int session_disconnect_aif(struct session_obj *sess_obj,
                           sess_obj->sess_id, aif_obj->aif_id);
             ret = -ENOMEM;
             pthread_mutex_unlock(&hwep_lock);
-            return ret;
+            goto done;
         }
 
         temp.gkv = merged_metadata->gkv;
@@ -580,10 +583,17 @@ static int session_disconnect_aif(struct session_obj *sess_obj,
             ret, aif_obj->aif_id);
     }
     pthread_mutex_unlock(&hwep_lock);
-    if (merged_meta_sess_aif)
-        metadata_free(merged_meta_sess_aif);
 
-    metadata_free(merged_metadata);
+done:
+    if (merged_meta_sess_aif) {
+        metadata_free(merged_meta_sess_aif);
+        free(merged_meta_sess_aif);
+    }
+
+    if (merged_metadata) {
+        metadata_free(merged_metadata);
+        free(merged_metadata);
+    }
     return ret;
 }
 

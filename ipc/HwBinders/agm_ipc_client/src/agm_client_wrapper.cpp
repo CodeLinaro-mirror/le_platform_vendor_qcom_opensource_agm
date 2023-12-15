@@ -1087,8 +1087,7 @@ int agm_session_write_datapath_params(uint32_t session_id, struct agm_buff *buf)
 
     if (!agm_server_died) {
         android::sp<IAGM> agm_client = get_agm_server();
-        hidl_vec<AgmBuff> buf_hidl;
-        buf_hidl.resize(sizeof(struct agm_buff));
+        hidl_vec<AgmBuff> buf_hidl(1);
         AgmBuff *agmBuff = buf_hidl.data();
         agmBuff->size = buf->size;
         agmBuff->buffer.resize(buf->size);

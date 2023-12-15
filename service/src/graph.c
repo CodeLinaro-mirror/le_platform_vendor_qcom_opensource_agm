@@ -26,39 +26,11 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
-**
-** Redistribution and use in source and binary forms, with or without
-** modification, are permitted (subject to the limitations in the
-** disclaimer below) provided that the following conditions are met:
-**
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**
-**   * Redistributions in binary form must reproduce the above
-**     copyright notice, this list of conditions and the following
-**     disclaimer in the documentation and/or other materials provided
-**     with the distribution.
-**
-**   * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-** NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
-** GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
-** HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
-** WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-** MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-** IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-** ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-** DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-** GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-** INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
-** IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-** OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
-** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
+
 #define LOG_TAG "AGM: graph"
 
 #include <errno.h>
@@ -523,6 +495,7 @@ int graph_open(struct agm_meta_data_gsl *meta_data_kv,
     size_t arraysize = 0;
     module_info_t *stream_module_list = NULL;
     module_info_t *hw_ep_module = NULL;
+    module_info_t *add_module = NULL;
 
     list_declare(node_sess);
     list_init(&node_sess);
@@ -601,12 +574,16 @@ int graph_open(struct agm_meta_data_gsl *meta_data_kv,
                         goto free_graph_obj;
                     }
                     mod = mod_list->data;
-                    mod->miid = gsl_tag_entry->module_entry[0].module_iid;
-                    mod->mid = gsl_tag_entry->module_entry[0].module_id;
-                    AGM_LOGD("miid %x mid %x tag %x", mod->miid, mod->mid, mod->tag);
-                    ADD_MODULE(*mod, NULL);
-                    /*Remove the module from the node_sess list*/
-                    list_remove(node_list);
+                    add_module = ADD_MODULE(*mod, NULL);
+                    if (!add_module) {
+                        AGM_LOGE("no memory to allocate add_module");
+                        ret = -ENOMEM;
+                        goto free_graph_obj;
+                    }
+                    add_module->miid = gsl_tag_entry->module_entry[0].module_iid;
+                    add_module->mid = gsl_tag_entry->module_entry[0].module_id;
+                    add_module->gkv = NULL;
+                    AGM_LOGD("miid %x mid %x tag %x", add_module->miid, add_module->mid, add_module->tag);
                     goto tag_list;
                 }
             }
@@ -628,8 +605,14 @@ int graph_open(struct agm_meta_data_gsl *meta_data_kv,
                         goto free_graph_obj;
                     }
                     mod = mod_list->data;
-                    mod->miid = gsl_tag_entry->module_entry[0].module_iid;
-                    mod->mid = gsl_tag_entry->module_entry[0].module_id;
+                    add_module = ADD_MODULE(*mod, dev_obj);
+                    if (!add_module) {
+                        AGM_LOGE("no memory to allocate add_module");
+                        ret = -ENOMEM;
+                        goto free_graph_obj;
+                    }
+                    add_module->miid = gsl_tag_entry->module_entry[0].module_iid;
+                    add_module->mid = gsl_tag_entry->module_entry[0].module_id;
                     /*store GKV which describes/contains this module*/
                     gkv = calloc(1, sizeof(struct agm_key_vector_gsl));
                     if (!gkv) {
@@ -647,11 +630,8 @@ int graph_open(struct agm_meta_data_gsl *meta_data_kv,
                     }
                     memcpy(gkv->kv, meta_data_kv->gkv.kv,
                           gkv->num_kvs * sizeof(struct agm_key_value));
-                    mod->gkv = gkv;
-                    AGM_LOGD("miid %x mid %x tag %x", mod->miid, mod->mid, mod->tag);
-                    ADD_MODULE(*mod, dev_obj);
-                    /*Remove the module from node_hw list*/
-                    list_remove(node_list);
+                    add_module->gkv = gkv;
+                    AGM_LOGD("miid %x mid %x tag %x", add_module->miid, add_module->mid, add_module->tag);
                     goto tag_list;
                 }
             }
@@ -702,6 +682,21 @@ free_graph_obj:
     pthread_mutex_destroy(&graph_obj->lock);
     free(graph_obj);
 done:
+    // free memory allocated in node sess/hw
+    list_for_each_safe(node, temp_node, &node_sess) {
+        list_remove(node);
+        mod_list = node_to_item(node, module_info_link_list_t, tagged_list);
+        if (mod_list)
+            free(mod_list);
+    }
+
+    list_for_each_safe(node, temp_node, &node_hw) {
+        list_remove(node);
+        mod_list = node_to_item(node, module_info_link_list_t, tagged_list);
+        if (mod_list)
+            free(mod_list);
+    }
+
     AGM_LOGD("exit, ret %d", ret);
     if (tag_module_info)
         free(tag_module_info);
@@ -1286,6 +1281,7 @@ int graph_add(struct graph_obj *graph_obj,
         bool mod_present = false;
         size_t arraysize;
         module_info_t *hw_ep_module = NULL;
+        module_info_t *add_module = NULL;
 
         get_hw_ep_module_list_array(&hw_ep_module, &arraysize);
         if (dev_obj->hw_ep_info.dir == AUDIO_OUTPUT)
@@ -1303,8 +1299,6 @@ int graph_add(struct graph_obj *graph_obj,
                           mod->tag);
             goto done;
         }
-        mod->miid = module_info->module_entry[0].module_iid;
-        mod->mid = module_info->module_entry[0].module_id;
         /**
          *Check if this is the same device object as was passed for graph open
          *or a new one.We do this by comparing the module_iid of the module
@@ -1313,7 +1307,7 @@ int graph_add(struct graph_obj *graph_obj,
          */
         list_for_each(node, &graph_obj->tagged_mod_list) {
             temp_mod = node_to_item(node, module_info_t, list);
-            if (temp_mod->miid == mod->miid) {
+            if (temp_mod->miid == module_info->module_entry[0].module_iid) {
                 mod_present = true;
                 /**
                  * Module might have configured previously as we don't reset in
@@ -1330,6 +1324,14 @@ int graph_add(struct graph_obj *graph_obj,
              */
             /*Make a local copy of gkv and use when we query gsl
             for tagged data*/
+            add_module = ADD_MODULE(*mod, dev_obj);
+            if (!add_module) {
+                AGM_LOGE("no memory to allocate add_module");
+                ret = -ENOMEM;
+                goto done;
+            }
+            add_module->miid = module_info->module_entry[0].module_iid;
+            add_module->mid = module_info->module_entry[0].module_id;
             gkv = calloc(1, sizeof(struct agm_key_vector_gsl));
             if (!gkv) {
                 AGM_LOGE("No memory to allocate for gkv\n");
@@ -1346,11 +1348,10 @@ int graph_add(struct graph_obj *graph_obj,
             }
             memcpy(gkv->kv, meta_data_kv->gkv.kv,
                     gkv->num_kvs * sizeof(struct agm_key_value));
-            mod->gkv = gkv;
+            add_module->gkv = gkv;
             gkv = NULL;
             AGM_LOGD("Adding the new module tag %x mid %x miid %x\n",
-                                    mod->tag, mod->mid, mod->miid);
-            ADD_MODULE(*mod, dev_obj);
+                    add_module->tag, add_module->mid, add_module->miid);
         }
     }
     /* Configure the newly added modules only if graph is in start state,
@@ -1640,6 +1641,7 @@ int graph_register_for_events(struct graph_obj *gph_obj,
        ret = ar_err_get_lnx_err_code(ret);
        AGM_LOGE("event registration failed with error %d\n", ret);
     }
+    free(reg_ev_payload);
     pthread_mutex_unlock(&gph_obj->lock);
 
     gph_obj->buf_info.timestamp = 0;

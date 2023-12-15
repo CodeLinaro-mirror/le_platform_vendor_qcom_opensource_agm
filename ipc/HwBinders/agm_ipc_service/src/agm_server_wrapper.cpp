@@ -28,36 +28,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted (subject to the limitations in the
- * disclaimer below) provided that the following conditions are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *
- *     * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
- * GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
- * HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
- * GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
- * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #define LOG_TAG "agm_server_wrapper"
@@ -94,7 +65,7 @@ typedef struct {
    pthread_mutex_t handle_lock;
    uint64_t handle;
    std::vector<std::pair<int, int>> shared_mem_fd_list;
-   std::vector<int> aif_id_list;
+   std::vector<uint32_t> aif_id_list;
 } agm_client_session_handle;
 
 typedef struct {
@@ -289,7 +260,7 @@ static void add_session_to_list_l(uint32_t session_id)
     }
 }
 
-static void add_session_aif_to_list_l(uint32_t session_id, uint64_t aif_id)
+static void add_session_aif_to_list_l(uint32_t session_id, uint32_t aif_id)
 {
     agm_client_session_handle *session_handle = NULL;
 
@@ -307,7 +278,7 @@ static void add_session_aif_to_list_l(uint32_t session_id, uint64_t aif_id)
     session_handle->aif_id_list.push_back(aif_id);
 }
 
-static void remove_session_aif_from_list_l(uint32_t session_id, uint64_t aif_id)
+static void remove_session_aif_from_list_l(uint32_t session_id, uint32_t aif_id)
 {
     agm_client_session_handle *session_handle = NULL;
 
@@ -1516,18 +1487,26 @@ Return<int32_t> AGM::ipc_agm_session_write_datapath_params(uint32_t session_id,
     buf.addr = nullptr;
     buf.metadata = nullptr;
 
-    bufSize = buff_hidl.data()->size;
+    if (1 != buff_hidl.size()) {
+        ALOGE("%s: buff_hidl size is not equal to 1.", __func__);
+        goto exit;
+    }
+    bufSize = buff_hidl[0].size;
     buf.addr = (uint8_t *)calloc(1, bufSize);
     if (!buf.addr) {
         ALOGE("%s: failed to calloc", __func__);
         goto exit;
     }
+    if (bufSize != buff_hidl[0].buffer.size()) {
+        ALOGE("%s: Invalid buffer vector size", __func__);
+        goto exit;
+    }
     buf.size = (size_t)bufSize;
-    buf.timestamp = buff_hidl.data()->timestamp;
-    buf.flags = buff_hidl.data()->flags;
+    buf.timestamp = buff_hidl[0].timestamp;
+    buf.flags = buff_hidl[0].flags;
 
     if (bufSize)
-        memcpy(buf.addr, buff_hidl.data()->buffer.data(), bufSize);
+        memcpy(buf.addr, buff_hidl[0].buffer.data(), bufSize);
     else {
         ALOGE("%s: buf size is null", __func__);
         goto exit;
