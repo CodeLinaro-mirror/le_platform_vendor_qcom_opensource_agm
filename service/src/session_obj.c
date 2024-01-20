@@ -50,6 +50,7 @@ static int session_close(struct session_obj *sess_obj);
 static int session_set_loopback(struct session_obj *sess_obj,
                            uint32_t session_id, bool enable);
 static pthread_mutex_t hwep_lock;
+static struct session_pool *sess_pool;
 static struct aif *aif_obj_get_from_pool(struct session_obj *sess_obj,
                                       uint32_t aif)
 {
