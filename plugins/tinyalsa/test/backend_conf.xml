@@ -49,7 +49,7 @@
     <device name="MI2S-LPAIF_AXI-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="SLIM-DEV1-TX-0" rate="48000" ch="1" bits="16" />
     <device name="USB_AUDIO-TX" rate="48000" ch="1" bits="16" />
-    <device name="MI2S-LPAIF-RX-PRIMARY" rate="48000" ch="1" bits="16" />
+    <device name="MI2S-LPAIF-RX-PRIMARY" rate="48000" ch="2" bits="16" />
     <device name="MI2S-LPAIF-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_AUD-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_AUD-TX-PRIMARY" rate="48000" ch="1" bits="16" />

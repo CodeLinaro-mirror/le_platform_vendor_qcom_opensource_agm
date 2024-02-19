@@ -24,6 +24,17 @@ else
 libagm_pcm_plugin_la_LDFLAGS += -lagmclient -L$(top_builddir)/ipc/DBus/agm_client/.libs
 endif
 
+lib_LTLIBRARIES      += libagm_compress_plugin.la
+libagm_compress_plugin_la_SOURCES   = src/agm_compress_plugin.c
+libagm_compress_plugin_la_CFLAGS = $(AM_CFLAGS)
+libagm_compress_plugin_la_LDFLAGS   = -ltinyalsa -ltinycompress -lpthread -lsndcardparser -L$(top_builddir)/snd_parser/.libs -avoid-version -shared
+if AGM_NO_IPC
+libagm_compress_plugin_la_CFLAGS += -DAGM_NO_IPC
+libagm_compress_plugin_la_LDFLAGS += -lagm -L$(top_builddir)/service/.libs
+else
+libagm_compress_plugin_la_LDFLAGS += -lagmclient -L$(top_builddir)/ipc/DBus/agm_client/.libs
+endif
+
 lib_LTLIBRARIES      += libagm_mixer_plugin.la
 libagm_mixer_plugin_la_SOURCES   = src/agm_mixer_plugin.c
 libagm_mixer_plugin_la_CFLAGS = $(AM_CFLAGS)

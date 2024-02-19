@@ -226,7 +226,7 @@
         <id>115</id>
         <name>PCM115</name>
         <pcm_plugin>
-            <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+            <so-name>libagm_pcm_plugin.so</so-name>
         </pcm_plugin>
         <props>
             <playback>0</playback>
@@ -239,7 +239,7 @@
         <id>116</id>
         <name>PCM116</name>
         <pcm_plugin>
-            <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+            <so-name>libagm_pcm_plugin.so</so-name>
         </pcm_plugin>
         <props>
             <playback>1</playback>
@@ -252,7 +252,7 @@
         <id>117</id>
         <name>PCM117</name>
         <pcm_plugin>
-           <so-name>libagm_pcm_passthrough_plugin.so</so-name>
+           <so-name>libagm_pcm_plugin.so</so-name>
         </pcm_plugin>
         <props>
             <playback>0</playback>
