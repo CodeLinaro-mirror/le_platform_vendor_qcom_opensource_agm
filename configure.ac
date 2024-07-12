@@ -1,5 +1,5 @@
 #                                               -*- Autoconf -*-
-# configure.ac -- Autoconf script for spf
+# configure.ac -- Autoconf script for agm
 #
 
 # Process this file with autoconf to produce a configure script
