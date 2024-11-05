@@ -5,6 +5,6 @@ includedir=@includedir@
 
 Name: agmtest
 Description: agm test tool
-Version: @VERSION@
+Version: @LT_VERSION@
 Libs: -L${libdir}
 Cflags: -I${includedir}/agmtest

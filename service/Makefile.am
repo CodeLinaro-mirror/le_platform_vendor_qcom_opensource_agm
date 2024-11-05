@@ -41,4 +41,4 @@ libagm_la_CFLAGS += $(GLIB_CFLAGS) -Dstrlcpy=g_strlcpy -Dstrlcat=g_strlcat -incl
 endif
 
 libagm_la_CFLAGS += -D__unused=__attribute__\(\(__unused__\)\)
-libagm_la_LDFLAGS = -module -shared -avoid-version
+libagm_la_LDFLAGS = -module -shared -version-number @LT_VERSION_NUMBER@
