@@ -1129,7 +1129,7 @@ void *agm_compress_open_by_name(const char *name,
     struct snd_compr_params params;
     char *token, *token_saveptr;
 
-
+    memset(&params, 0, sizeof(params));
     token_saveptr = token = (char *)name;
     strtok_r(token, ":", &token_saveptr);
 
