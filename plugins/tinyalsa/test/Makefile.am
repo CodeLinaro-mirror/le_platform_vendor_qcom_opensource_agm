@@ -10,7 +10,7 @@ AM_CFLAGS += -DBACKEND_CONF_FILE=\"/etc/backend_conf.xml\"
 lib_LTLIBRARIES      = libagmmixer.la
 libagmmixer_la_SOURCES   = agmmixer.c
 libagmmixer_la_CFLAGS = $(AM_CFLAGS)
-libagmmixer_la_LDFLAGS   = -avoid-version -shared
+libagmmixer_la_LDFLAGS   = -shared -version-number @LT_VERSION_NUMBER@
 libagmmixer_la_LIBADD   = -ltinyalsa -ldl -lexpat @GLIB_LIBS@
 
 bin_PROGRAMS = agmplay
