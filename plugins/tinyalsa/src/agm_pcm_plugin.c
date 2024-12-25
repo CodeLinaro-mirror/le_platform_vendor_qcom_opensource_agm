@@ -26,8 +26,8 @@
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -366,9 +366,13 @@ static int agm_pcm_plugin_update_hw_ptr(struct agm_pcm_priv *priv)
 
         // Set delta_wall_clk_us only if cached wall clk is non-zero
         if (priv->pos_buf->wall_clk_msw || priv->pos_buf->wall_clk_lsw) {
-                delta_wall_clk_us = (int64_t)((((uint64_t)wall_clk_msw) << 32 | wall_clk_lsw) -
-                                        (((uint64_t)priv->pos_buf->wall_clk_msw) << 32 |
-                                         priv->pos_buf->wall_clk_lsw));
+            uint64_t dsp_wall_clk =  (((uint64_t)wall_clk_msw) << 32 | wall_clk_lsw);
+            uint64_t cached_wall_clk = (((uint64_t)priv->pos_buf->wall_clk_msw) << 32 |
+                                         priv->pos_buf->wall_clk_lsw);
+            //Compute delta only if diff is greater than zero
+            if (dsp_wall_clk > cached_wall_clk) {
+                delta_wall_clk_us = (int64_t)(dsp_wall_clk - cached_wall_clk);
+            }
         }
         // Identify the number of times of shared buffer length that the
         // hw ptr has jumped through by checking wall clock time delta
