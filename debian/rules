@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- --with-glib --with-syslog --with-agm-no-ipc
+
+override_dh_install:
+	dh_install
+	rm $(CURDIR)/debian/tmp/usr/lib/*/*.la
+	install -D -m 644 debian/tmp/etc/backend_conf.xml $(DESTDIR)/etc/backend_conf.xml
+	install -D -m 644 debian/tmp/etc/card-defs.xml $(DESTDIR)/etc/card-defs.xml
+	install -D -m 755 debian/tmp/usr/bin/agmcap $(DESTDIR)/usr/bin/agmcap
+	install -D -m 755 debian/tmp/usr/bin/agmplay $(DESTDIR)/usr/bin/agmplay
