@@ -34,6 +34,7 @@
 
 #include <malloc.h>
 #include <string.h>
+#include <limits.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
 
