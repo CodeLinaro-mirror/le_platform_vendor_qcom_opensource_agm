@@ -37,8 +37,8 @@ libagm_la_CFLAGS += -DAGM_MEMLOG_UNSUPPORTED
 
 if USE_GLIB
 libagm_la_LIBADD += -lglib-2.0
-libagm_la_CFLAGS += $(GLIB_CFLAGS) -Dstrlcpy=g_strlcpy -Dstrlcat=g_strlcat -include glib.h
+libagm_la_CFLAGS += $(GLIB_CFLAGS) -include glib.h
 endif
 
 libagm_la_CFLAGS += -D__unused=__attribute__\(\(__unused__\)\)
-libagm_la_LDFLAGS = -module -shared -avoid-version
+libagm_la_LDFLAGS = -module -shared -version-number @LT_VERSION_NUMBER@

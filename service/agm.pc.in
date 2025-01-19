@@ -5,4 +5,4 @@ includedir=@includedir@
 
 Name: agm
 Description: agm library
-Version: @VERSION@
+Version: @LT_VERSION@
