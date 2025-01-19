@@ -975,6 +975,14 @@ PCM_PLUGIN_OPEN_FN(agm_pcm_plugin)
     priv->mmap_status = false;
     snd_card_def_get_int(pcm_node, "session_mode", &sess_mode);
 
+#ifdef AGM_NO_IPC
+    ret = agm_init();
+    if (ret) {
+        AGM_LOGE("%s: agm init failed\n", __func__);
+        return ret;
+    }
+#endif
+
     ret = agm_session_open(session_id, sess_mode, &handle);
     if (ret) {
         errno = ret;
