@@ -1,6 +1,6 @@
 /*
 ** Copyright (c) 2019, 2021 The Linux Foundation. All rights reserved.
-** Copyright (c) 2022, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022, 2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -41,6 +41,7 @@
 #include <strings.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include <tinyalsa/plugin.h>
 #include <snd-card-def.h>
 #include <tinyalsa/asoundlib.h>

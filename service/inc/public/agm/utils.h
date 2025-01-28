@@ -33,9 +33,9 @@
 
 #ifndef __UTILS_H__
 #include "ar_osal_error.h"
+#include <stdint.h>
 
 #ifdef AGM_USE_SYSLOG
-#include <stdint.h>
 #include <syslog.h>
 
 #ifndef ALOGD
