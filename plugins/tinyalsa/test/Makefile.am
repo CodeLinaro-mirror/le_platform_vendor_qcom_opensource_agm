@@ -4,7 +4,7 @@ EXTRA_DIST = $(pkgconfig_DATA)
 
 AM_CFLAGS = -Wno-unused-parameter -Wno-unused-result
 AM_CFLAGS += -I${includedir}/acdbdata -I$(top_srcdir)/service/inc/public
-AM_CFLAGS += $(GLIB_CFLAGS) -include glib.h @KVH2XML_CFLAGS@
+AM_CFLAGS += $(GLIB_CFLAGS) @KVH2XML_CFLAGS@
 
 AM_CFLAGS += -DBACKEND_CONF_FILE=\"/etc/backend_conf.xml\"
 lib_LTLIBRARIES      = libagmmixer.la
