@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -73,6 +73,20 @@ typedef enum {
    SLOT_MASK15 = 15,
 }slot_mask_t;
 
+struct agm_time_us {
+    uint32_t value_lsw;
+    uint32_t value_msw;
+};
+
+struct agm_session_time_v2 {
+    struct agm_time_us session_time;
+    struct agm_time_us absolute_time;
+    struct agm_time_us ref_timestamp;
+    struct agm_time_us timestamp;
+    uint32_t flags;
+    uint32_t underrun_flag;
+};
+
 int convert_char_to_hex(char *char_num);
 int get_tinyalsa_pcm_bit_width(enum pcm_format fmt_id);
 int set_agm_device_media_config(struct mixer *mixer, char *intf_name, struct device_config *config);
@@ -98,6 +112,7 @@ int agm_mixer_set_param_with_file(struct mixer *mixer, int device,
 int agm_mixer_set_ecref_path(struct mixer *mixer, unsigned int device, enum stream_type stype, char *intf_name);
 int agm_mixer_get_event_param(struct mixer *mixer, int device, enum stream_type stype,uint32_t miid);
 int agm_mixer_get_buf_tstamp(struct mixer *mixer, int device, enum stream_type stype, uint64_t *tstamp);
+int agm_mixer_get_timestamp_v2(struct mixer *mixer, int device, enum stream_type stype, uint32_t miid, struct agm_session_time_v2 *stime);
 int get_device_media_config(char* filename, char *intf_name, struct device_config *config);
 int get_group_device_info(char* filename, char *intf_name, struct group_config *config);
 int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag, enum stream_type stype, unsigned int rate,

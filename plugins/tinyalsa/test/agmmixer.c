@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -48,6 +48,7 @@
 
 #define PARAM_ID_DETECTION_ENGINE_GENERIC_EVENT_CFG 0x0800104E
 #define PARAM_ID_MFC_OUTPUT_MEDIA_FORMAT            0x08001024
+#define PARAM_ID_SPR_SESSION_TIME_V2                0x08001B14
 
 #define PARAM_ID_DISPLAY_PORT_INTF_CFG   0x8001154
 
@@ -446,6 +447,85 @@ int get_group_device_info(char* filename, char *intf_name, struct group_config *
 
     be_name[be_len] = '\0';
     return get_backend_info(filename, be_name, (void *)config, GROUP);
+}
+
+int agm_mixer_get_timestamp_v2(struct mixer *mixer, int device, enum stream_type stype, uint32_t miid, struct agm_session_time_v2 *stime)
+{
+    char *stream = "PCM";
+    char *control = "getParam";
+    char *mixer_str;
+    struct mixer_ctl *ctl;
+    int ctl_len = 0,ret = 0;
+    struct apm_module_param_data_t* header;
+    struct agm_session_time_v2 *spr_session_time;
+    uint8_t* payload = NULL;
+    size_t payloadSize = 0;
+
+    if (stype == STREAM_COMPRESS)
+        stream = "COMPRESS";
+
+    ctl_len = strlen(stream) + 4 + strlen(control) + 1;
+    mixer_str = calloc(1, ctl_len);
+    if (!mixer_str)
+        return -ENOMEM;
+
+    snprintf(mixer_str, ctl_len, "%s%d %s", stream, device, control);
+
+    ctl = mixer_get_ctl_by_name(mixer, mixer_str);
+    if (!ctl) {
+        printf("Invalid mixer control: %s\n", mixer_str);
+        free(mixer_str);
+        return ENOENT;
+    }
+
+    payloadSize = sizeof(struct apm_module_param_data_t) +
+                  sizeof(struct agm_session_time_v2);
+
+    if (payloadSize % 8 != 0)
+        payloadSize = payloadSize + (8 - payloadSize % 8);
+
+    payload = (uint8_t*)malloc((size_t)payloadSize);
+    if (!payload) {
+        printf("malloc failed\n");
+        free(mixer_str);
+        return -ENOMEM;
+    }
+    header = (struct apm_module_param_data_t*)payload;
+    header->module_instance_id = miid;
+    header->param_id = PARAM_ID_SPR_SESSION_TIME_V2;
+    header->error_code = 0x0;
+    header->param_size = payloadSize - sizeof(struct apm_module_param_data_t);
+
+    ret = mixer_ctl_set_array(ctl, payload, payloadSize);
+    if (ret) {
+         printf("%s set failed\n", __func__);
+         goto exit;
+    }
+
+    memset(payload, 0, payloadSize);
+    ret = mixer_ctl_get_array(ctl, payload, payloadSize);
+    if (ret) {
+         printf("%s get failed\n", __func__);
+         goto exit;
+    }
+
+    spr_session_time = (struct agm_session_time_v2 *)
+                     (payload + sizeof(struct apm_module_param_data_t));
+    stime->session_time.value_lsw = spr_session_time->session_time.value_lsw;
+    stime->session_time.value_msw = spr_session_time->session_time.value_msw;
+    stime->absolute_time.value_lsw = spr_session_time->absolute_time.value_lsw;
+    stime->absolute_time.value_msw = spr_session_time->absolute_time.value_msw;
+    stime->timestamp.value_lsw = spr_session_time->timestamp.value_lsw;
+    stime->timestamp.value_msw = spr_session_time->timestamp.value_msw;
+    stime->ref_timestamp.value_lsw = spr_session_time->ref_timestamp.value_lsw;
+    stime->ref_timestamp.value_msw = spr_session_time->ref_timestamp.value_msw;
+    stime->underrun_flag = spr_session_time->underrun_flag;
+    //flags from Spf are igonred
+
+exit:
+    free(mixer_str);
+    free(payload);
+    return ret;
 }
 
 int set_agm_group_device_config(struct mixer *mixer, char *intf_name, struct group_config *config)
