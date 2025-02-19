@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
-** Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 **/
 
@@ -44,6 +44,7 @@
 #include <sys/time.h>
 #include <limits.h>
 #include <linux/ioctl.h>
+#include <pthread.h>
 
 #include <sound/asound.h>
 
@@ -2244,7 +2245,7 @@ static int amp_form_acdb_ctls(struct amp_priv *amp_priv, int ctl_idx)
 }
 
 static ssize_t amp_read_event(struct mixer_plugin *plugin,
-                              struct mixer_ctl_event *ev, size_t size) 
+                              struct snd_ctl_event *ev, long unsigned size)
 {
     struct amp_priv *amp_priv = plugin->priv;
     ssize_t result = 0;

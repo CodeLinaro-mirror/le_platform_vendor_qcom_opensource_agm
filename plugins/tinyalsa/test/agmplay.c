@@ -27,7 +27,7 @@
 ** DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -73,6 +73,7 @@ static int close = 0;
 void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned int *device_kv,
                  unsigned int stream_kv, unsigned int instance_kv, unsigned int *devicepp_kv,
                  struct chunk_fmt fmt, bool haptics, char **intf_name, int intf_num, bool is_24_LE);
+int set_agm_dp_audio_config_metadata(char *intf_name, struct mixer *mixer, uint32_t miid, unsigned int channels);
 
 void stream_close(int sig)
 {

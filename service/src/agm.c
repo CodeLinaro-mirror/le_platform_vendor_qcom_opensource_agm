@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: API"
@@ -323,18 +323,18 @@ int agm_get_params_from_acdb_tunnel(void *payload, size_t *size)
         payloadACDBTunnelInfo->num_kvs,
         payloadACDBTunnelInfo->blob_size);
 
-    ptr = payloadACDBTunnelInfo->blob;
+    ptr = (uint32_t *)payloadACDBTunnelInfo->blob;
     for (k = 0; k < payloadACDBTunnelInfo->blob_size / 4; k++) {
         AGM_LOGV("%d data = 0x%x", k, *ptr++);
     }
 
-    ptr = payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
+    ptr = (uint32_t *)payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
             (payloadACDBTunnelInfo->num_gkvs + payloadACDBTunnelInfo->num_kvs);
     // tag is stored at miid. Convertion happens next.
     AGM_LOGI("tag = 0x%x", *ptr);
 
     gkv.num_kvs = payloadACDBTunnelInfo->num_gkvs;
-    gkv.kv = payloadACDBTunnelInfo->blob;
+    gkv.kv = (struct agm_key_value *)payloadACDBTunnelInfo->blob;
 
     ret = session_dummy_rw_acdb_tunnel(payload, FALSE);
     if (ret) {
@@ -544,12 +544,12 @@ int agm_set_params_to_acdb_tunnel(void *payload, size_t size)
         payloadACDBTunnelInfo->num_kvs,
         payloadACDBTunnelInfo->blob_size);
 
-    ptr = payloadACDBTunnelInfo->blob;
+    ptr = (uint32_t *)payloadACDBTunnelInfo->blob;
     for (k = 0; k < payloadACDBTunnelInfo->blob_size / 4; k++) {
         AGM_LOGV("%d data = 0x%x", k, *ptr++);
     }
 
-    ptr = payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
+    ptr = (uint32_t *)payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
             (payloadACDBTunnelInfo->num_gkvs + payloadACDBTunnelInfo->num_kvs);
     // tag is stored at miid. Convertion happens next.
     AGM_LOGI("tag = 0x%x", *ptr);

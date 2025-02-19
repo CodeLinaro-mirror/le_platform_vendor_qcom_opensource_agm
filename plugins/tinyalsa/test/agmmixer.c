@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -1119,7 +1119,7 @@ int set_agm_dp_audio_config_metadata(char *intf_name, struct mixer *mixer, uint3
     payloadInfo = (uint8_t*) calloc(1, payloadSize);
     if (!payloadInfo) {
         printf("payloadInfo malloc failed %s\n", strerror(errno));
-        return;
+        return -ENOMEM;
     }
 
     header = (struct apm_module_param_data_t*)payloadInfo;

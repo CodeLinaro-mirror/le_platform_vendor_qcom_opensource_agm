@@ -36,7 +36,7 @@
  * Key Vector
  */
 struct agm_key_vector_gsl {
-    size_t num_kvs;                 /**< number of key value pairs */
+    uint32_t num_kvs;               /**< number of key value pairs */
     struct agm_key_value *kv;       /**< array of key value pairs */
 };
 struct sg_prop {

@@ -28,7 +28,7 @@
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
 **
-** Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 **
 **/
@@ -287,7 +287,7 @@ err:
     return ret;
 }
 
-int agm_compress_write(void *data, const void *buf, unsigned int size)
+int agm_compress_write(void *data, const void *buf, long unsigned int size)
 {
     struct agm_compress_priv *priv = data;
     struct snd_compr_avail avail;
@@ -368,7 +368,7 @@ int agm_read(struct agm_compress_priv *priv, void *buff, size_t count)
     return count;
 }
 
-int agm_compress_read(void *data, void *buf, unsigned int size)
+int agm_compress_read(void *data, void *buf, long unsigned int size)
 {
     struct agm_compress_priv *priv = data;
     struct snd_compr_avail avail;
@@ -443,7 +443,7 @@ int agm_compress_tstamp(void *data,
 }
 
 int agm_compress_get_tstamp(void *data,
-                        unsigned long *samples, unsigned int *sampling_rate)
+                        unsigned int *samples, unsigned int *sampling_rate)
 {
     struct agm_compress_priv *priv = data;
     struct snd_compr_tstamp ktstamp;
