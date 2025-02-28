@@ -17,7 +17,7 @@ AM_CFLAGS += @MMHEADERS_CFLAGS@
 lib_LTLIBRARIES      = libagm_pcm_plugin.la
 libagm_pcm_plugin_la_SOURCES   = src/agm_pcm_plugin.c
 libagm_pcm_plugin_la_CFLAGS = $(AM_CFLAGS)
-libagm_pcm_plugin_la_LDFLAGS  = -ltinyalsa -lsndcardparser -avoid-version -L$(top_builddir)/snd_parser/.libs  -share
+libagm_pcm_plugin_la_LDFLAGS  = -ltinyalsa -lsndcardparser -avoid-version -L$(top_builddir)/snd_parser/.libs  -shared
 libagm_pcm_plugin_la_LDFLAGS +=   -laudio_log_utils
 if AGM_NO_IPC
 libagm_pcm_plugin_la_CFLAGS += -DAGM_NO_IPC
