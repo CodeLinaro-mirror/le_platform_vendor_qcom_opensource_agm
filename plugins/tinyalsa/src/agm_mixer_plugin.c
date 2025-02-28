@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
-** Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 **/
 
@@ -2310,7 +2310,10 @@ static void amp_close(struct mixer_plugin **plugin)
 
     /* unblock mixer event during close */
     if (amp_priv->event_cb)
+    {
         amp_priv->event_cb(amp);
+        usleep(1000);
+    }
     amp_register_event_callback(amp, 0);
     amp_subscribe_events(amp, NULL);
     snd_card_def_put_card(amp_priv->card_node);

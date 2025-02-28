@@ -1,0 +1,54 @@
+Source: qcom-agm
+Section: misc
+Priority: optional
+Maintainer: Sairamreddy Bojja <quic_sbojja@quicinc.com>
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper-compat (= 13),
+ libglib2.0-0,
+ libglib2.0-dev,
+ qcom-kvh2xml-dev,
+ libtinyalsa2,
+ libtinyalsa-dev,
+ libtinycompress0,
+ libtinycompress-dev,
+ qcom-args-dev,
+ qcom-args,
+ libexpat1-dev,
+Standards-Version: 4.6.2
+Homepage: https://git.codelinaro.org/clo/le/platform/vendor/qcom/opensource/agm
+
+Package: qcom-agm
+Architecture: arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ qcom-kvh2xml-dev,
+ libtinyalsa2,
+ libtinyalsa-dev,
+ libtinycompress0,
+ libtinycompress-dev,
+ qcom-args,
+ qcom-args-dev,
+Description: Qualcomm agm audio stack
+ Firmware and shared libraries package.
+
+Package: qcom-agm-dev
+Section: libdevel
+Architecture: arm64
+Depends:
+ qcom-agm (= ${binary:Version}),
+ ${misc:Depends},
+ qcom-args,
+Description: Qualcomm agm audio stack development headers
+ Headers-only package.
+
+Package: qcom-agm-utils
+Section: utils
+Architecture: arm64
+Depends:
+ qcom-agm (= ${binary:Version}),
+ ${misc:Depends},
+ qcom-args,
+Description: Qualcomm agm audio stack development utils
+ Utils package.
