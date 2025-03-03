@@ -74,7 +74,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                  unsigned int channels, unsigned int rate, unsigned int bits,
                  unsigned int *device_kv, unsigned int stream_kv, unsigned int instance_kv,
                  unsigned int *devicepp_kv, struct chunk_fmt fmt, bool haptics, char **intf_name,
-                 int intf_num, bool is_24_LE);
+                 int intf_num, bool is_24_LE, int vmid_kv, unsigned int offload_proc_kv);
 
 void stream_close(int sig)
 {
@@ -95,6 +95,7 @@ static void usage(void)
            " [-skv stream_kv] [-h haptics usecase]\n"
            " [is_24_LE] : [0-1] Only to be used if user wants to play S24_LE clip\n"
            " [-usb_d usb device]\n"
+           " [-vmid_kv 0 PVM, 1 LA_GVM1, 2 LA_GVM2, 3 LA_GVM3]\n"
            " 0: If clip bps is 32, and format is S32_LE\n"
            " 1: If clip bps is 24, and format is S24_LE\n");
 }
@@ -112,12 +113,14 @@ int main(int argc, char **argv)
     unsigned int bits = 16;
     int intf_num = 1;
     uint32_t dkv = SPEAKER;
-    uint32_t dppkv = DEVICEPP_RX_AUDIO_MBDRC;
+    uint32_t dppkv = 0;
     unsigned int stream_kv = 0;
     unsigned int instance_kv = 0;
     bool haptics = false;
     char **intf_name = NULL;
     char *filename;
+    int vmid_kv = -1;
+    unsigned int offload_proc_kv = 0;
     int more_chunks = 1, ret = 0;
     bool is_24_LE = false;
     unsigned int *devicepp_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
@@ -259,6 +262,14 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 usb_device = atoi(*argv);
+        } else if (strcmp(*argv, "-vmid") == 0) {
+            argv++;
+            if (*argv)
+                vmid_kv = atoi(*argv);
+        } else if (strcmp(*argv, "-offload") == 0) {
+            argv++;
+            if (*argv)
+                offload_proc_kv = convert_char_to_hex(*argv);
         } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
@@ -275,7 +286,7 @@ int main(int argc, char **argv)
             intf_idx, devicepp_kv[intf_idx], intf_idx, device_kv[intf_idx]);
     }
     play_sample(file, card, device, usb_device, channels, rate, bits, device_kv, stream_kv,
-                 instance_kv, devicepp_kv, chunk_fmt, haptics, intf_name, intf_num, is_24_LE);
+                 instance_kv, devicepp_kv, chunk_fmt, haptics, intf_name, intf_num, is_24_LE, vmid_kv, offload_proc_kv);
 
     fclose(file);
     if (device_kv)
@@ -292,7 +303,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                  unsigned int channels, unsigned int rate, unsigned int bits,
                  unsigned int *device_kv, unsigned int stream_kv, unsigned int instance_kv,
                  unsigned int *devicepp_kv, struct chunk_fmt fmt, bool haptics, char **intf_name,
-                 int intf_num, bool is_24_LE)
+                 int intf_num, bool is_24_LE, int vmid_kv, unsigned int offload_proc_kv)
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -397,7 +408,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
 
     /* set stream metadata mixer control */
     if (set_agm_stream_metadata(mixer, device, stream_kv, PLAYBACK, STREAM_PCM,
-                                instance_kv)) {
+                                instance_kv, vmid_kv, offload_proc_kv)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }
@@ -446,7 +457,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
         } else {
             if (configure_pcm_converter(mixer, device, intf_name[index], STREAM_PCM_CONVERTER,
                                 STREAM_PCM, fmt.sample_rate, fmt.num_channels,
-                                fmt.bits_per_sample)) {
+                                fmt.bits_per_sample, miid)) {
                 printf("Failed to configure pcm converter\n");
                 goto err_close_mixer;
             }

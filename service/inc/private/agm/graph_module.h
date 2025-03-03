@@ -141,6 +141,8 @@ enum  channel_num{
     CHANNEL_14 = 14,
     CHANNEL_16 = 16,
     CHANNEL_32 = 32,
+    CHANNEL_64 = 64,
+    CHANNEL_128 = 128
 };
 
 struct module_info {

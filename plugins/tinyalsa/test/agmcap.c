@@ -73,7 +73,7 @@ static unsigned int capture_sample(FILE *file, unsigned int card, unsigned int d
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
                             unsigned int device_kv, unsigned int instance_kv,
-                            unsigned int devicepp_kv);
+                            unsigned int devicepp_kv, int vmid_kv, unsigned int offload_proc_kv);
 
 static void sigint_handler(int sig)
 {
@@ -90,6 +90,7 @@ static void usage(void)
            " [-skv stream_kv]\n"
            " [-is_24_LE] : [0-1] Only to be used if user wants to record 32 bps clip\n"
            " [-usb_d usb device]\n"
+           " [-vmid_kv 0 PVM, 1 LA_GVM1, 2 LA_GVM2, 3 LA_GVM3]\n"
            " 0: If bps is 32, and format should be S32_LE\n"
            " 1: If bps is 24, and format should be S24_LE\n");
 }
@@ -115,8 +116,10 @@ int main(int argc, char **argv)
     int ret = 0;
     unsigned int devicepp_kv = 0;
     unsigned int stream_kv = 0;
-    unsigned int instance_kv = INSTANCE_1;
+    unsigned int instance_kv = 0;
     bool is_24_LE = false;
+    int vmid_kv = -1;
+    unsigned int offload_proc_kv = 0;
 
     if (argc < 2) {
         usage();
@@ -192,7 +195,15 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 usb_device = atoi(*argv);
-        }else if (strcmp(*argv, "-help") == 0) {
+        } else if (strcmp(*argv, "-vmid") == 0) {
+            argv++;
+            if (*argv)
+                vmid_kv = atoi(*argv);
+        } else if (strcmp(*argv, "-offload") == 0) {
+            argv++;
+            if (*argv)
+                offload_proc_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
         if (*argv)
@@ -259,7 +270,8 @@ int main(int argc, char **argv)
     frames = capture_sample(file, card, device, usb_device, header.num_channels,
                             header.sample_rate, bits, format,
                             period_size, period_count, cap_time, &config,
-                            stream_kv, device_kv, instance_kv, devicepp_kv);
+                            stream_kv, device_kv, instance_kv, devicepp_kv,
+                            vmid_kv, offload_proc_kv);
     printf("Captured %u frames\n", frames);
 
     /* write header now all information is known */
@@ -278,7 +290,8 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             unsigned int bits, enum pcm_format format, unsigned int period_size,
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
-                            unsigned int device_kv, unsigned int instance_kv, unsigned int devicepp_kv)
+                            unsigned int device_kv, unsigned int instance_kv, unsigned int devicepp_kv,
+                            int vmid_kv, unsigned int offload_proc_kv)
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -376,7 +389,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
 
     /* set stream metadata mixer control */
     if (set_agm_capture_stream_metadata(mixer, device, stream_kv, CAPTURE, STREAM_PCM,
-                                        instance_kv)) {
+                                        instance_kv, vmid_kv, offload_proc_kv)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }

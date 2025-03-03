@@ -91,9 +91,9 @@ int set_agm_stream_metadata_type(struct mixer *mixer, int device, char *val, enu
 int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase, enum stream_type stype,
                                   char *intf_name, unsigned int devicepp_kv);
 int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type utype, enum stream_type stype,
-                            unsigned int instance_kv);
+                            unsigned int instance_kv, int vmid_kv, uint32_t offload_proc_kv);
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type utype, enum stream_type stype,
-                            unsigned int instance_kv);
+                            unsigned int instance_kv, int vmid_kv, uint32_t offload_proc_kv);
 int connect_agm_audio_intf_to_stream(struct mixer *mixer, unsigned int device,
                                   char *intf_name, enum stream_type, bool connect);
 int agm_mixer_register_event(struct mixer *mixer, int device, enum stream_type stype, uint32_t miid, uint8_t is_register);
@@ -111,5 +111,5 @@ int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag, enu
                        unsigned int channels, unsigned int bits, uint32_t miid);
 int set_agm_dp_audio_config_metadata(char *intf_name, struct mixer *mixer, uint32_t miid, unsigned int channels);
 int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, int tag,
-        enum stream_type stype, unsigned int rate, unsigned int channels, unsigned int bits);
+        enum stream_type stype, unsigned int rate, unsigned int channels, unsigned int bits, uint32_t miid);
 #endif

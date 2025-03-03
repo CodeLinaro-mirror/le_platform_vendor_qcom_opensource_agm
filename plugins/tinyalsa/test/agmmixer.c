@@ -52,6 +52,7 @@
 #define PARAM_ID_PCM_OUTPUT_FORMAT_CFG              0x08001008
 #define MEDIA_FMT_ID_PCM                            0x09001000
 #define PCM_LITTLE_ENDIAN                           1
+#define PCM_INTERLEAVED                             1
 #define PCM_DEINTERLEAVED_UNPACKED                  3
 #define PCM_LSB_ALIGNED                             1
 
@@ -104,6 +105,100 @@ enum pcm_channel_map
     PCM_CHANNEL_RW = 32,
     PCM_CHANNEL_LSD = 33,
     PCM_CHANNEL_RSD = 34,
+    PCM_CUSTOM_CHANNEL_MAP_17 = 35,
+    PCM_CUSTOM_CHANNEL_MAP_18 = 36,
+    PCM_CUSTOM_CHANNEL_MAP_19 = 37,
+    PCM_CUSTOM_CHANNEL_MAP_20 = 38,
+    PCM_CUSTOM_CHANNEL_MAP_21 = 39,
+    PCM_CUSTOM_CHANNEL_MAP_22 = 40,
+    PCM_CUSTOM_CHANNEL_MAP_23 = 41,
+    PCM_CUSTOM_CHANNEL_MAP_24 = 42,
+    PCM_CUSTOM_CHANNEL_MAP_25 = 43,
+    PCM_CUSTOM_CHANNEL_MAP_26 = 44,
+    PCM_CUSTOM_CHANNEL_MAP_27 = 45,
+    PCM_CUSTOM_CHANNEL_MAP_28 = 46,
+    PCM_CUSTOM_CHANNEL_MAP_29 = 47,
+    PCM_CUSTOM_CHANNEL_MAP_1 = 48,
+    PCM_CUSTOM_CHANNEL_MAP_2 = 49,
+    PCM_CUSTOM_CHANNEL_MAP_3 = 50,
+    PCM_CUSTOM_CHANNEL_MAP_4 = 51,
+    PCM_CUSTOM_CHANNEL_MAP_5 = 52,
+    PCM_CUSTOM_CHANNEL_MAP_6 = 53,
+    PCM_CUSTOM_CHANNEL_MAP_7 = 54,
+    PCM_CUSTOM_CHANNEL_MAP_8 = 55,
+    PCM_CUSTOM_CHANNEL_MAP_9 = 56,
+    PCM_CUSTOM_CHANNEL_MAP_10 = 57,
+    PCM_CUSTOM_CHANNEL_MAP_11 = 58,
+    PCM_CUSTOM_CHANNEL_MAP_12 = 59,
+    PCM_CUSTOM_CHANNEL_MAP_13 = 60,
+    PCM_CUSTOM_CHANNEL_MAP_14 = 61,
+    PCM_CUSTOM_CHANNEL_MAP_15 = 62,
+    PCM_CUSTOM_CHANNEL_MAP_16 = 63,
+    PCM_CUSTOM_CHANNEL_MAP_30 = 64,
+    PCM_CUSTOM_CHANNEL_MAP_31 = 65,
+    PCM_CUSTOM_CHANNEL_MAP_32 = 66,
+    PCM_CUSTOM_CHANNEL_MAP_33 = 67,
+    PCM_CUSTOM_CHANNEL_MAP_34 = 68,
+    PCM_CUSTOM_CHANNEL_MAP_35 = 69,
+    PCM_CUSTOM_CHANNEL_MAP_36 = 70,
+    PCM_CUSTOM_CHANNEL_MAP_37 = 71,
+    PCM_CUSTOM_CHANNEL_MAP_38 = 72,
+    PCM_CUSTOM_CHANNEL_MAP_39 = 73,
+    PCM_CUSTOM_CHANNEL_MAP_40 = 74,
+    PCM_CUSTOM_CHANNEL_MAP_41 = 75,
+    PCM_CUSTOM_CHANNEL_MAP_42 = 76,
+    PCM_CUSTOM_CHANNEL_MAP_43 = 77,
+    PCM_CUSTOM_CHANNEL_MAP_44 = 78,
+    PCM_CUSTOM_CHANNEL_MAP_45 = 79,
+    PCM_CUSTOM_CHANNEL_MAP_46 = 80,
+    PCM_CUSTOM_CHANNEL_MAP_47 = 81,
+    PCM_CUSTOM_CHANNEL_MAP_48 = 82,
+    PCM_CUSTOM_CHANNEL_MAP_49 = 83,
+    PCM_CUSTOM_CHANNEL_MAP_50 = 84,
+    PCM_CUSTOM_CHANNEL_MAP_51 = 85,
+    PCM_CUSTOM_CHANNEL_MAP_52 = 86,
+    PCM_CUSTOM_CHANNEL_MAP_53 = 87,
+    PCM_CUSTOM_CHANNEL_MAP_54 = 88,
+    PCM_CUSTOM_CHANNEL_MAP_55 = 89,
+    PCM_CUSTOM_CHANNEL_MAP_56 = 90,
+    PCM_CUSTOM_CHANNEL_MAP_57 = 91,
+    PCM_CUSTOM_CHANNEL_MAP_58 = 92,
+    PCM_CUSTOM_CHANNEL_MAP_59 = 93,
+    PCM_CUSTOM_CHANNEL_MAP_60 = 94,
+    PCM_CUSTOM_CHANNEL_MAP_61 = 95,
+    PCM_CUSTOM_CHANNEL_MAP_62 = 96,
+    PCM_CUSTOM_CHANNEL_MAP_63 = 97,
+    PCM_CUSTOM_CHANNEL_MAP_64 = 98,
+    PCM_CUSTOM_CHANNEL_MAP_65 = 99,
+    PCM_CUSTOM_CHANNEL_MAP_66 = 100,
+    PCM_CUSTOM_CHANNEL_MAP_67 = 101,
+    PCM_CUSTOM_CHANNEL_MAP_68 = 102,
+    PCM_CUSTOM_CHANNEL_MAP_69 = 103,
+    PCM_CUSTOM_CHANNEL_MAP_70 = 104,
+    PCM_CUSTOM_CHANNEL_MAP_71 = 105,
+    PCM_CUSTOM_CHANNEL_MAP_72 = 106,
+    PCM_CUSTOM_CHANNEL_MAP_73 = 107,
+    PCM_CUSTOM_CHANNEL_MAP_74 = 108,
+    PCM_CUSTOM_CHANNEL_MAP_75 = 109,
+    PCM_CUSTOM_CHANNEL_MAP_76 = 110,
+    PCM_CUSTOM_CHANNEL_MAP_77 = 111,
+    PCM_CUSTOM_CHANNEL_MAP_78 = 112,
+    PCM_CUSTOM_CHANNEL_MAP_79 = 113,
+    PCM_CUSTOM_CHANNEL_MAP_80 = 114,
+    PCM_CUSTOM_CHANNEL_MAP_81 = 115,
+    PCM_CUSTOM_CHANNEL_MAP_82 = 116,
+    PCM_CUSTOM_CHANNEL_MAP_83 = 117,
+    PCM_CUSTOM_CHANNEL_MAP_84 = 118,
+    PCM_CUSTOM_CHANNEL_MAP_85 = 119,
+    PCM_CUSTOM_CHANNEL_MAP_86 = 120,
+    PCM_CUSTOM_CHANNEL_MAP_87 = 121,
+    PCM_CUSTOM_CHANNEL_MAP_88 = 122,
+    PCM_CUSTOM_CHANNEL_MAP_89 = 123,
+    PCM_CUSTOM_CHANNEL_MAP_90 = 124,
+    PCM_CUSTOM_CHANNEL_MAP_91 = 125,
+    PCM_CUSTOM_CHANNEL_MAP_92 = 126,
+    PCM_CUSTOM_CHANNEL_MAP_93 = 127,
+    PCM_CUSTOM_CHANNEL_MAP_94 = 128,
 };
 
 /* Payload of the PARAM_ID_MFC_OUTPUT_MEDIA_FORMAT parameter in the
@@ -1130,6 +1225,200 @@ void populateChannelMap(uint16_t *pcmChannel, uint8_t numChannel)
         pcmChannel[29] = PCM_CHANNEL_BFR;
         pcmChannel[30] = PCM_CHANNEL_LW;
         pcmChannel[31] = PCM_CHANNEL_RW;
+    } else if (numChannel == 64) {
+        pcmChannel[0] = PCM_CHANNEL_L;
+        pcmChannel[1] = PCM_CHANNEL_R;
+        pcmChannel[2] = PCM_CHANNEL_C;
+        pcmChannel[3] = PCM_CHANNEL_LS;
+        pcmChannel[4] = PCM_CHANNEL_RS;
+        pcmChannel[5] = PCM_CHANNEL_LFE;
+        pcmChannel[6] = PCM_CHANNEL_CS;
+        pcmChannel[7] = PCM_CHANNEL_LB;
+        pcmChannel[8] = PCM_CHANNEL_RB;
+        pcmChannel[9] = PCM_CHANNEL_TS;
+        pcmChannel[10] = PCM_CHANNEL_CVH;
+        pcmChannel[11] = PCM_CHANNEL_MS;
+        pcmChannel[12] = PCM_CHANNEL_FLC;
+        pcmChannel[13] = PCM_CHANNEL_FRC;
+        pcmChannel[14] = PCM_CHANNEL_RLC;
+        pcmChannel[15] = PCM_CHANNEL_RRC;
+        pcmChannel[16] = PCM_CHANNEL_LFE2;
+        pcmChannel[17] = PCM_CHANNEL_SL;
+        pcmChannel[18] = PCM_CHANNEL_SR;
+        pcmChannel[19] = PCM_CHANNEL_TFL;
+        pcmChannel[20] = PCM_CHANNEL_TFR;
+        pcmChannel[21] = PCM_CHANNEL_TC;
+        pcmChannel[22] = PCM_CHANNEL_TBL;
+        pcmChannel[23] = PCM_CHANNEL_TBR;
+        pcmChannel[24] = PCM_CHANNEL_TSL;
+        pcmChannel[25] = PCM_CHANNEL_TSR;
+        pcmChannel[26] = PCM_CHANNEL_TBC;
+        pcmChannel[27] = PCM_CHANNEL_BFC;
+        pcmChannel[28] = PCM_CHANNEL_BFL;
+        pcmChannel[29] = PCM_CHANNEL_BFR;
+        pcmChannel[30] = PCM_CHANNEL_LW;
+        pcmChannel[31] = PCM_CHANNEL_RW;
+        pcmChannel[32] = PCM_CHANNEL_LSD;
+        pcmChannel[33] = PCM_CHANNEL_RSD;
+        pcmChannel[34] = PCM_CUSTOM_CHANNEL_MAP_17;
+        pcmChannel[35] = PCM_CUSTOM_CHANNEL_MAP_18;
+        pcmChannel[36] = PCM_CUSTOM_CHANNEL_MAP_19;
+        pcmChannel[37] = PCM_CUSTOM_CHANNEL_MAP_20;
+        pcmChannel[38] = PCM_CUSTOM_CHANNEL_MAP_21;
+        pcmChannel[39] = PCM_CUSTOM_CHANNEL_MAP_22;
+        pcmChannel[40] = PCM_CUSTOM_CHANNEL_MAP_23;
+        pcmChannel[41] = PCM_CUSTOM_CHANNEL_MAP_24;
+        pcmChannel[42] = PCM_CUSTOM_CHANNEL_MAP_25;
+        pcmChannel[43] = PCM_CUSTOM_CHANNEL_MAP_26;
+        pcmChannel[44] = PCM_CUSTOM_CHANNEL_MAP_27;
+        pcmChannel[45] = PCM_CUSTOM_CHANNEL_MAP_28;
+        pcmChannel[46] = PCM_CUSTOM_CHANNEL_MAP_29;
+        pcmChannel[47] = PCM_CUSTOM_CHANNEL_MAP_1;
+        pcmChannel[48] = PCM_CUSTOM_CHANNEL_MAP_2;
+        pcmChannel[49] = PCM_CUSTOM_CHANNEL_MAP_3;
+        pcmChannel[50] = PCM_CUSTOM_CHANNEL_MAP_4;
+        pcmChannel[51] = PCM_CUSTOM_CHANNEL_MAP_5;
+        pcmChannel[52] = PCM_CUSTOM_CHANNEL_MAP_6;
+        pcmChannel[53] = PCM_CUSTOM_CHANNEL_MAP_7;
+        pcmChannel[54] = PCM_CUSTOM_CHANNEL_MAP_8;
+        pcmChannel[55] = PCM_CUSTOM_CHANNEL_MAP_9;
+        pcmChannel[56] = PCM_CUSTOM_CHANNEL_MAP_10;
+        pcmChannel[57] = PCM_CUSTOM_CHANNEL_MAP_11;
+        pcmChannel[58] = PCM_CUSTOM_CHANNEL_MAP_12;
+        pcmChannel[59] = PCM_CUSTOM_CHANNEL_MAP_13;
+        pcmChannel[60] = PCM_CUSTOM_CHANNEL_MAP_14;
+        pcmChannel[61] = PCM_CUSTOM_CHANNEL_MAP_15;
+        pcmChannel[62] = PCM_CUSTOM_CHANNEL_MAP_16;
+        pcmChannel[63] = PCM_CUSTOM_CHANNEL_MAP_30;
+    } else if (numChannel == 128) {
+        pcmChannel[0] = PCM_CHANNEL_L;
+        pcmChannel[1] = PCM_CHANNEL_R;
+        pcmChannel[2] = PCM_CHANNEL_C;
+        pcmChannel[3] = PCM_CHANNEL_LS;
+        pcmChannel[4] = PCM_CHANNEL_RS;
+        pcmChannel[5] = PCM_CHANNEL_LFE;
+        pcmChannel[6] = PCM_CHANNEL_CS;
+        pcmChannel[7] = PCM_CHANNEL_LB;
+        pcmChannel[8] = PCM_CHANNEL_RB;
+        pcmChannel[9] = PCM_CHANNEL_TS;
+        pcmChannel[10] = PCM_CHANNEL_CVH;
+        pcmChannel[11] = PCM_CHANNEL_MS;
+        pcmChannel[12] = PCM_CHANNEL_FLC;
+        pcmChannel[13] = PCM_CHANNEL_FRC;
+        pcmChannel[14] = PCM_CHANNEL_RLC;
+        pcmChannel[15] = PCM_CHANNEL_RRC;
+        pcmChannel[16] = PCM_CHANNEL_LFE2;
+        pcmChannel[17] = PCM_CHANNEL_SL;
+        pcmChannel[18] = PCM_CHANNEL_SR;
+        pcmChannel[19] = PCM_CHANNEL_TFL;
+        pcmChannel[20] = PCM_CHANNEL_TFR;
+        pcmChannel[21] = PCM_CHANNEL_TC;
+        pcmChannel[22] = PCM_CHANNEL_TBL;
+        pcmChannel[23] = PCM_CHANNEL_TBR;
+        pcmChannel[24] = PCM_CHANNEL_TSL;
+        pcmChannel[25] = PCM_CHANNEL_TSR;
+        pcmChannel[26] = PCM_CHANNEL_TBC;
+        pcmChannel[27] = PCM_CHANNEL_BFC;
+        pcmChannel[28] = PCM_CHANNEL_BFL;
+        pcmChannel[29] = PCM_CHANNEL_BFR;
+        pcmChannel[30] = PCM_CHANNEL_LW;
+        pcmChannel[31] = PCM_CHANNEL_RW;
+        pcmChannel[32] = PCM_CHANNEL_LSD;
+        pcmChannel[33] = PCM_CHANNEL_RSD;
+        pcmChannel[34] = PCM_CUSTOM_CHANNEL_MAP_17;
+        pcmChannel[35] = PCM_CUSTOM_CHANNEL_MAP_18;
+        pcmChannel[36] = PCM_CUSTOM_CHANNEL_MAP_19;
+        pcmChannel[37] = PCM_CUSTOM_CHANNEL_MAP_20;
+        pcmChannel[38] = PCM_CUSTOM_CHANNEL_MAP_21;
+        pcmChannel[39] = PCM_CUSTOM_CHANNEL_MAP_22;
+        pcmChannel[40] = PCM_CUSTOM_CHANNEL_MAP_23;
+        pcmChannel[41] = PCM_CUSTOM_CHANNEL_MAP_24;
+        pcmChannel[42] = PCM_CUSTOM_CHANNEL_MAP_25;
+        pcmChannel[43] = PCM_CUSTOM_CHANNEL_MAP_26;
+        pcmChannel[44] = PCM_CUSTOM_CHANNEL_MAP_27;
+        pcmChannel[45] = PCM_CUSTOM_CHANNEL_MAP_28;
+        pcmChannel[46] = PCM_CUSTOM_CHANNEL_MAP_29;
+        pcmChannel[47] = PCM_CUSTOM_CHANNEL_MAP_1;
+        pcmChannel[48] = PCM_CUSTOM_CHANNEL_MAP_2;
+        pcmChannel[49] = PCM_CUSTOM_CHANNEL_MAP_3;
+        pcmChannel[50] = PCM_CUSTOM_CHANNEL_MAP_4;
+        pcmChannel[51] = PCM_CUSTOM_CHANNEL_MAP_5;
+        pcmChannel[52] = PCM_CUSTOM_CHANNEL_MAP_6;
+        pcmChannel[53] = PCM_CUSTOM_CHANNEL_MAP_7;
+        pcmChannel[54] = PCM_CUSTOM_CHANNEL_MAP_8;
+        pcmChannel[55] = PCM_CUSTOM_CHANNEL_MAP_9;
+        pcmChannel[56] = PCM_CUSTOM_CHANNEL_MAP_10;
+        pcmChannel[57] = PCM_CUSTOM_CHANNEL_MAP_11;
+        pcmChannel[58] = PCM_CUSTOM_CHANNEL_MAP_12;
+        pcmChannel[59] = PCM_CUSTOM_CHANNEL_MAP_13;
+        pcmChannel[60] = PCM_CUSTOM_CHANNEL_MAP_14;
+        pcmChannel[61] = PCM_CUSTOM_CHANNEL_MAP_15;
+        pcmChannel[62] = PCM_CUSTOM_CHANNEL_MAP_16;
+        pcmChannel[63] = PCM_CUSTOM_CHANNEL_MAP_30;
+        pcmChannel[64] = PCM_CUSTOM_CHANNEL_MAP_31;
+        pcmChannel[65] = PCM_CUSTOM_CHANNEL_MAP_32;
+        pcmChannel[66] = PCM_CUSTOM_CHANNEL_MAP_33;
+        pcmChannel[67] = PCM_CUSTOM_CHANNEL_MAP_34;
+        pcmChannel[68] = PCM_CUSTOM_CHANNEL_MAP_35;
+        pcmChannel[69] = PCM_CUSTOM_CHANNEL_MAP_36;
+        pcmChannel[70] = PCM_CUSTOM_CHANNEL_MAP_37;
+        pcmChannel[71] = PCM_CUSTOM_CHANNEL_MAP_38;
+        pcmChannel[72] = PCM_CUSTOM_CHANNEL_MAP_39;
+        pcmChannel[73] = PCM_CUSTOM_CHANNEL_MAP_40;
+        pcmChannel[74] = PCM_CUSTOM_CHANNEL_MAP_41;
+        pcmChannel[75] = PCM_CUSTOM_CHANNEL_MAP_42;
+        pcmChannel[76] = PCM_CUSTOM_CHANNEL_MAP_43;
+        pcmChannel[77] = PCM_CUSTOM_CHANNEL_MAP_44;
+        pcmChannel[78] = PCM_CUSTOM_CHANNEL_MAP_45;
+        pcmChannel[79] = PCM_CUSTOM_CHANNEL_MAP_46;
+        pcmChannel[80] = PCM_CUSTOM_CHANNEL_MAP_47;
+        pcmChannel[81] = PCM_CUSTOM_CHANNEL_MAP_48;
+        pcmChannel[82] = PCM_CUSTOM_CHANNEL_MAP_49;
+        pcmChannel[83] = PCM_CUSTOM_CHANNEL_MAP_50;
+        pcmChannel[84] = PCM_CUSTOM_CHANNEL_MAP_51;
+        pcmChannel[85] = PCM_CUSTOM_CHANNEL_MAP_52;
+        pcmChannel[86] = PCM_CUSTOM_CHANNEL_MAP_53;
+        pcmChannel[87] = PCM_CUSTOM_CHANNEL_MAP_54;
+        pcmChannel[88] = PCM_CUSTOM_CHANNEL_MAP_55;
+        pcmChannel[89] = PCM_CUSTOM_CHANNEL_MAP_56;
+        pcmChannel[90] = PCM_CUSTOM_CHANNEL_MAP_57;
+        pcmChannel[91] = PCM_CUSTOM_CHANNEL_MAP_58;
+        pcmChannel[92] = PCM_CUSTOM_CHANNEL_MAP_59;
+        pcmChannel[93] = PCM_CUSTOM_CHANNEL_MAP_60;
+        pcmChannel[94] = PCM_CUSTOM_CHANNEL_MAP_61;
+        pcmChannel[95] = PCM_CUSTOM_CHANNEL_MAP_62;
+        pcmChannel[96] = PCM_CUSTOM_CHANNEL_MAP_63;
+        pcmChannel[97] = PCM_CUSTOM_CHANNEL_MAP_64;
+        pcmChannel[98] = PCM_CUSTOM_CHANNEL_MAP_65;
+        pcmChannel[99] = PCM_CUSTOM_CHANNEL_MAP_66;
+        pcmChannel[100] = PCM_CUSTOM_CHANNEL_MAP_67;
+        pcmChannel[101] = PCM_CUSTOM_CHANNEL_MAP_68;
+        pcmChannel[102] = PCM_CUSTOM_CHANNEL_MAP_69;
+        pcmChannel[103] = PCM_CUSTOM_CHANNEL_MAP_70;
+        pcmChannel[104] = PCM_CUSTOM_CHANNEL_MAP_71;
+        pcmChannel[105] = PCM_CUSTOM_CHANNEL_MAP_72;
+        pcmChannel[106] = PCM_CUSTOM_CHANNEL_MAP_73;
+        pcmChannel[107] = PCM_CUSTOM_CHANNEL_MAP_74;
+        pcmChannel[108] = PCM_CUSTOM_CHANNEL_MAP_75;
+        pcmChannel[109] = PCM_CUSTOM_CHANNEL_MAP_76;
+        pcmChannel[110] = PCM_CUSTOM_CHANNEL_MAP_77;
+        pcmChannel[111] = PCM_CUSTOM_CHANNEL_MAP_78;
+        pcmChannel[112] = PCM_CUSTOM_CHANNEL_MAP_79;
+        pcmChannel[113] = PCM_CUSTOM_CHANNEL_MAP_80;
+        pcmChannel[114] = PCM_CUSTOM_CHANNEL_MAP_81;
+        pcmChannel[115] = PCM_CUSTOM_CHANNEL_MAP_82;
+        pcmChannel[116] = PCM_CUSTOM_CHANNEL_MAP_83;
+        pcmChannel[117] = PCM_CUSTOM_CHANNEL_MAP_84;
+        pcmChannel[118] = PCM_CUSTOM_CHANNEL_MAP_85;
+        pcmChannel[119] = PCM_CUSTOM_CHANNEL_MAP_86;
+        pcmChannel[120] = PCM_CUSTOM_CHANNEL_MAP_87;
+        pcmChannel[121] = PCM_CUSTOM_CHANNEL_MAP_88;
+        pcmChannel[122] = PCM_CUSTOM_CHANNEL_MAP_89;
+        pcmChannel[123] = PCM_CUSTOM_CHANNEL_MAP_90;
+        pcmChannel[124] = PCM_CUSTOM_CHANNEL_MAP_91;
+        pcmChannel[125] = PCM_CUSTOM_CHANNEL_MAP_92;
+        pcmChannel[126] = PCM_CUSTOM_CHANNEL_MAP_93;
+        pcmChannel[127] = PCM_CUSTOM_CHANNEL_MAP_94;
     }
 }
 
@@ -1180,7 +1469,7 @@ int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag,
 
 int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, int tag,
                   enum stream_type stype, unsigned int rate,
-                  unsigned int channels, unsigned int bits)
+                  unsigned int channels, unsigned int bits, uint32_t miid)
 {
 
     struct apm_module_param_data_t* header = NULL;
@@ -1191,7 +1480,6 @@ int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, in
     uint8_t *pcmChannel = NULL;
     uint16_t *temp = NULL;
     int ret = 0;
-    uint32_t miid = 0;
 
     payloadSize = sizeof(struct apm_module_param_data_t) +
                   sizeof(struct media_format_t) +
@@ -1264,7 +1552,8 @@ int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, in
 }
 
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
-                                    enum stream_type stype, unsigned int instance_kv)
+                                    enum stream_type stype, unsigned int instance_kv,
+                                    int vmid_kv, uint32_t offload_proc_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1283,6 +1572,12 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
         return ret;
 
     if (instance_kv != 0)
+        num_gkv += 1;
+
+    if (vmid_kv >= 0)
+        num_gkv += 1;
+
+    if (offload_proc_kv != 0)
        num_gkv += 1;
 
     gkv_size = num_gkv * sizeof(struct agm_key_value);
@@ -1313,6 +1608,18 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
         printf("Instance key is added\n");
         gkv[index].key = INSTANCE;
         gkv[index].value = instance_kv;
+        index++;
+    }
+
+    if (vmid_kv >= 0) {
+        gkv[index].key = VMID;
+        gkv[index].value = vmid_kv;
+        index++;
+    }
+
+    if (offload_proc_kv != 0) {
+        gkv[index].key = OFFLOAD_PROCESSOR;
+        gkv[index].value = offload_proc_kv;
         index++;
     }
 
@@ -1546,7 +1853,7 @@ int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val,
 }
 
 int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
-                            enum stream_type stype, unsigned int instance_kv)
+                            enum stream_type stype, unsigned int instance_kv, int vmid_kv, uint32_t offload_proc_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1568,6 +1875,12 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
         stream = "COMPRESS";
 
     if (val == PCM_LL_PLAYBACK || val == COMPRESSED_OFFLOAD_PLAYBACK || instance_kv != 0)
+       num_gkv += 1;
+
+    if (vmid_kv >= 0)
+       num_gkv += 1;
+
+    if (offload_proc_kv != 0)
        num_gkv += 1;
 
     if (val == VOICE_UI) {
@@ -1622,6 +1935,18 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     } else if (usecase == LOOPBACK) {
         gkv[index].key = STREAMRX;
         gkv[index].value = val;
+        index++;
+    }
+
+    if (vmid_kv >= 0) {
+        gkv[index].key = VMID;
+        gkv[index].value = vmid_kv;
+        index++;
+    }
+
+    if (offload_proc_kv != 0) {
+        gkv[index].key = OFFLOAD_PROCESSOR;
+        gkv[index].value = offload_proc_kv;
         index++;
     }
 
