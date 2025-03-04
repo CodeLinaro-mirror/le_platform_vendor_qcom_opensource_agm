@@ -81,10 +81,10 @@ struct agm_time_us {
 struct agm_session_time_v2 {
     struct agm_time_us session_time;
     struct agm_time_us absolute_time;
-    struct agm_time_us ref_timestamp;
     struct agm_time_us timestamp;
     uint32_t flags;
     uint32_t underrun_flag;
+    struct agm_time_us ref_timestamp;
 };
 
 int convert_char_to_hex(char *char_num);
