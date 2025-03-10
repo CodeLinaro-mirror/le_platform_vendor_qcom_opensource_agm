@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -145,6 +145,7 @@ int session_obj_set_sess_aif_params(struct session_obj *sess_obj,
                              void *payload, size_t size);
 int session_obj_get_sess_params(struct session_obj *sess_obj,
                              void *payload, size_t size);
+int session_obj_get_available_frame_count(struct session_obj *sess_obj, uint32_t *payload);
 int session_obj_set_sess_aif_params_with_tag(struct session_obj *sess_obj,
                              uint32_t aif_id,
                              struct agm_tag_config *tag_config);

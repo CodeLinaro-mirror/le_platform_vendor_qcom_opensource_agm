@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: session"
@@ -1857,6 +1857,41 @@ int session_obj_get_sess_params(struct session_obj *sess_obj,
 
     pthread_mutex_unlock(&sess_obj->lock);
     return ret;
+}
+
+int session_obj_get_available_frame_count(struct session_obj *sess_obj, uint32_t *payload)
+{
+    int ret = 0;
+    uint32_t avail_buffer_size = 0;
+    struct agm_media_config *media_config = NULL;
+    uint32_t bytes_per_sample = 0;
+
+    pthread_mutex_lock(&sess_obj->lock);
+    if (sess_obj->state == SESSION_CLOSED) {
+        AGM_LOGE("session with id %u is closed\n", sess_obj->sess_id);
+        ret = -EINVAL;
+        goto done;
+    }
+
+    ret = graph_get_avail_buffer_size(sess_obj->graph, sess_obj->stream_config.dir == RX,
+                                      &avail_buffer_size);
+    if (ret)
+        AGM_LOGE("graph_get_avail_buffer_size failed with error %d, session id %u\n", ret,
+                 sess_obj->sess_id);
+
+    if (sess_obj->stream_config.dir == RX)
+        media_config = &sess_obj->out_media_config;
+    else
+        media_config = &sess_obj->in_media_config;
+
+    bytes_per_sample = get_pcm_bits_per_sample(media_config->format) / 8;
+
+    *payload = avail_buffer_size / media_config->channels / bytes_per_sample;
+
+done:
+   pthread_mutex_unlock(&sess_obj->lock);
+
+   return ret;
 }
 
 int session_obj_get_tag_with_module_info(struct session_obj *sess_obj,

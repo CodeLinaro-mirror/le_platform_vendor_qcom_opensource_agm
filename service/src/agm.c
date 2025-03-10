@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023,2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: API"
@@ -469,6 +469,24 @@ int agm_session_set_params(uint32_t session_id,
 
 done:
     return ret;
+}
+
+int agm_session_get_available_frame_count(uint32_t session_id, uint32_t *payload)
+{
+    struct session_obj *obj = NULL;
+    int ret = 0;
+    ret = session_obj_get(session_id, &obj);
+    if (ret) {
+        AGM_LOGE("session_obj_get failed with error %d and session id %u\n", ret, session_id);
+        return ret;
+    }
+
+    ret = session_obj_get_available_frame_count(obj, payload);
+    if (ret)
+        AGM_LOGE("session_obj_get_available_frame_count failed with error %d and session id %u\n", ret, session_id);
+
+    return ret;
+
 }
 
 int agm_set_params_with_tag(uint32_t session_id, uint32_t aif_id,

@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2023,2025 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -1149,6 +1149,24 @@ int graph_get_config(struct graph_obj *graph_obj, void *payload,
         AGM_LOGE("graph_get_config failed %d", ret);
     }
     pthread_mutex_unlock(&graph_obj->lock);
+
+    return ret;
+}
+
+int graph_get_avail_buffer_size(struct graph_obj *graph_obj, bool is_playback, uint32_t *bytes)
+{
+    int ret = 0;
+
+    if (!graph_obj) {
+        AGM_LOGE("graph object not set\n");
+        return -EINVAL;
+    }
+
+    ret = gsl_get_avail_buffer_size(graph_obj->graph_handle, is_playback, bytes);
+    if (ret) {
+        ret = ar_err_get_lnx_err_code(ret);
+        AGM_LOGE("gsl_get_avail_buffer_size failed with error %d\n", ret);
+    }
 
     return ret;
 }
