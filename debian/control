@@ -20,6 +20,8 @@ Homepage: https://git.codelinaro.org/clo/le/platform/vendor/qcom/opensource/agm
 
 Package: qcom-agm
 Architecture: arm64
+Replaces: agm0
+Breaks: agm0
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
@@ -36,6 +38,8 @@ Description: Qualcomm agm audio stack
 Package: qcom-agm-dev
 Section: libdevel
 Architecture: arm64
+Replaces: agm-dev
+Breaks: agm-dev
 Depends:
  qcom-agm (= ${binary:Version}),
  ${misc:Depends},
