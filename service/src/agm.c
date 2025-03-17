@@ -134,7 +134,6 @@ int agm_init()
     }
     agm_initialized = 1;
 
-    pthread_join(ats_thread, NULL);
 exit:
     return ret;
 }
