@@ -1002,6 +1002,44 @@ done:
     return ret;
 }
 
+int agm_alloc_spr_shared_memory(uint32_t session_id, void* payload,size_t size)
+{
+    struct session_obj *obj = NULL;
+    int ret = 0;
+    ret = session_obj_get(session_id, &obj);
+    if (ret) {
+        AGM_LOGE("Error:%d retrieving session obj with session id=%d\n",
+                ret, session_id);
+        goto done;
+    }
+    ret = session_obj_alloc_spr_shared_memory(obj, payload,size);
+    if (ret)
+        AGM_LOGE("Error:%d allocating shmem for session obj with \
+                session id=%d\n", ret, session_id);
+
+done:
+    return ret;
+}
+
+int agm_dealloc_spr_shared_memory(uint32_t session_id, void* payload,size_t size)
+{
+    struct session_obj *obj = NULL;
+    int ret = 0;
+    ret = session_obj_get(session_id, &obj);
+    if (ret) {
+        AGM_LOGE("Error:%d retrieving session obj with session id=%d\n",
+                ret, session_id);
+        goto done;
+    }
+    ret = session_obj_dealloc_spr_shared_memory(obj,payload,size);
+    if (ret)
+        AGM_LOGE("Error:%d allocating shmem for session obj with \
+                session id=%d\n", ret, session_id);
+
+done:
+    return ret;
+}
+
 int agm_register_service_crash_callback(agm_service_crash_cb cb __unused,
                                         uint64_t cookie __unused)
 {

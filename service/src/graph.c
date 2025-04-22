@@ -2363,3 +2363,45 @@ static void print_graph_alias(const struct agm_meta_data_gsl *meta_data_kv)
     }
     AGM_LOGD("GKV Alias %s\n", acdb_string);
 }
+
+int graph_alloc_spr_shared_memory(struct graph_obj *graph_obj, void *payload,
+                      size_t payload_size)
+{
+     int ret = 0;
+     if (graph_obj == NULL) {
+         AGM_LOGE("invalid graph object\n");
+         return -EINVAL;
+     }
+
+     pthread_mutex_lock(&graph_obj->lock);
+     ret = gsl_ioctl(graph_obj->graph_handle, GSL_CMD_SHARED_MEM_CUSTOM_ALLOC_MAP, payload,
+             payload_size);
+     if (ret !=0) {
+         ret = ar_err_get_lnx_err_code(ret);
+         AGM_LOGE("failed to allocate spr shared memory %d\n", ret);
+     }
+
+     pthread_mutex_unlock(&graph_obj->lock);
+     return ret;
+}
+
+int graph_dealloc_spr_shared_memory(struct graph_obj *graph_obj, void *payload,
+                      size_t payload_size)
+{
+     int ret = 0;
+     if (graph_obj == NULL) {
+         AGM_LOGE("invalid graph object\n");
+         return -EINVAL;
+     }
+
+     pthread_mutex_lock(&graph_obj->lock);
+     ret = gsl_ioctl(graph_obj->graph_handle, GSL_CMD_SHARED_MEM_CUSTOM_DEALLOC_MAP, payload,
+             payload_size);
+     if (ret !=0) {
+         ret = ar_err_get_lnx_err_code(ret);
+         AGM_LOGE("failed to deallocate spr shared memory %d\n", ret);
+     }
+
+     pthread_mutex_unlock(&graph_obj->lock);
+     return ret;
+}

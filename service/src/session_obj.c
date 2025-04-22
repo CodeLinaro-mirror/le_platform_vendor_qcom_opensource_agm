@@ -2806,3 +2806,81 @@ int session_obj_set_non_tunnel_mode_config(struct session_obj *sess_obj,
     pthread_mutex_unlock(&sess_obj->lock);
     return ret;
 }
+
+int session_obj_alloc_spr_shared_memory(struct session_obj *sess_obj, void *payload, size_t size)
+{
+    int ret = 0;
+    pthread_mutex_lock(&sess_obj->lock);
+
+    if ((size == 0) ||(payload == NULL))
+        goto done;
+
+    sess_obj->params = calloc(1, size);
+    if (!sess_obj->params) {
+        AGM_LOGE("No memory for sess params on sess_id:%d\n",
+                sess_obj->sess_id);
+        ret = -EINVAL;
+        goto done;
+    }
+    memcpy(sess_obj->params, payload, size);
+    sess_obj->params_size = size;
+
+    if (sess_obj->state != SESSION_CLOSED) {
+        ret = graph_alloc_spr_shared_memory(sess_obj->graph,sess_obj->params,
+                sess_obj->params_size);
+        if (ret) {
+            AGM_LOGE("Error:%d setting for sess params on sess_id:%d\n",
+                    ret, sess_obj->sess_id);
+        }
+        memcpy(payload, sess_obj->params, size);
+        free(sess_obj->params);
+        sess_obj->params = NULL;
+        sess_obj->params_size = 0;
+    }
+
+done:
+    pthread_mutex_unlock(&sess_obj->lock);
+    return ret;
+}
+
+int session_obj_dealloc_spr_shared_memory(struct session_obj *sess_obj, void *payload, size_t size)
+{
+    int ret = 0;
+    pthread_mutex_lock(&sess_obj->lock);
+
+    if (sess_obj->params) {
+        free(sess_obj->params);
+        sess_obj->params = NULL;
+        sess_obj->params_size = 0;
+    }
+
+    if ((size == 0) ||(payload == NULL))
+        goto done;
+
+    sess_obj->params = calloc(1, size);
+    if (!sess_obj->params) {
+        AGM_LOGE("No memory for sess params on sess_id:%d\n",
+                sess_obj->sess_id);
+        ret = -EINVAL;
+        goto done;
+    }
+    memcpy(sess_obj->params, payload, size);
+    sess_obj->params_size = size;
+
+
+    if (sess_obj->state != SESSION_CLOSED) {
+        ret = graph_dealloc_spr_shared_memory(sess_obj->graph,sess_obj->params,
+                sess_obj->params_size);
+        if (ret) {
+            AGM_LOGE("Error:%d setting for sess params on sess_id:%d\n",
+                    ret, sess_obj->sess_id);
+        }
+        free(sess_obj->params);
+        sess_obj->params = NULL;
+        sess_obj->params_size = 0;
+    }
+
+done:
+    pthread_mutex_unlock(&sess_obj->lock);
+    return ret;
+}
