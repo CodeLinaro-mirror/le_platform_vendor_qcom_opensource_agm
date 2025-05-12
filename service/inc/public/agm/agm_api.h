@@ -1221,6 +1221,28 @@ int agm_session_write_datapath_params(uint32_t session_id, struct agm_buff *buff
   */
 int agm_dump(struct agm_dump_info *dump_info);
 
+/**
+  * \brief Allocate shared memory in SPF for SPR module
+  *
+  * \param[in] session_id - Valid audio session id
+  * \param[in] payload - Details of shared memory region to be allocated
+  * \param[in] size - Size of the payload
+  *
+  *  \return 0 on success, error code on failure.
+  */
+int agm_alloc_spr_shared_memory(uint32_t session_id, void* payload, size_t size);
+
+/**
+  * \brief Dellocate shared memory in SPF used by SPR module
+  *
+  * \param[in] session_id - Valid audio session id
+  * \param[in] payload - Details of shared memory region to be deallocated
+  * \param[in] size - Size of the payload
+  *
+  *  \return 0 on success, error code on failure.
+  */
+int agm_dealloc_spr_shared_memory(uint32_t session_id, void* payload, size_t size);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif
