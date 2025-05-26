@@ -116,6 +116,9 @@ enum {
     PCM_CTL_NAME_SET_CALIBRATION,
     PCM_CTL_NAME_GET_PARAM,
     PCM_CTL_NAME_BUF_INFO,
+    PCM_CTL_NAME_GET_AVAILABLE_FRAME_COUNT,
+    PCM_CTL_NAME_ALLOC_SPR_SHARED_MEMORY,
+    PCM_CTL_NAME_DEALLOC_SPR_SHARED_MEMORY,
     /* Add new ones here */
 };
 
@@ -133,6 +136,9 @@ static char *amp_pcm_ctl_name_extn[] = {
     "setCalibration",
     "getParam",
     "getBufInfo",
+    "getAvailableFrameCount",
+    "allocSprSharedMemory",
+    "deallocSprSharedMemory",
     /* Add new ones below, be sure to update enum as well */
 };
 
@@ -1690,6 +1696,118 @@ static int amp_pcm_write_datapath_params_put(struct mixer_plugin *plugin,
     return ret;
 }
 
+static int amp_pcm_available_frame_count_get(struct mixer_plugin *plugin, struct snd_control *ctl, struct snd_ctl_tlv *tlv)
+{
+    int ret;
+    ret = agm_session_get_available_frame_count(ctl->private_value, (uint32_t *)&tlv->tlv[0]);
+    if (ret)
+        AGM_LOGE("agm_session_get_available_frame_count failed with error %d\n", ret);
+
+    return ret;
+}
+
+static int amp_pcm_available_frame_count_put(struct mixer_plugin *plugin __unused, struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv __unused)
+{
+    return 0;
+}
+
+static int amp_pcm_alloc_spr_shared_memory_get(struct mixer_plugin *plugin __unused,
+                 struct snd_control *ctl, struct snd_ctl_tlv *tlv)
+{
+    struct amp_dev_info *pcm_adi = ctl->private_data;
+    void *payload;
+    size_t tlv_size;
+    int ret = 0;
+    int pcm_idx;
+    int idx = ctl->private_value;
+
+    AGM_LOGI("%s: enter\n", __func__);
+
+    payload = &tlv->tlv[0];
+    tlv_size = tlv->length;
+    pcm_idx = ctl->private_value;
+
+    if (!pcm_adi->get_param_info[idx].get_param_payload) {
+        AGM_LOGE("%s: put() for allocSprSharedMemory not called\n", __func__);
+        return -EINVAL;
+    }
+
+    if (tlv_size < pcm_adi->get_param_info[idx].get_param_payload_size) {
+        AGM_LOGE("%s: Buffer size less than expected\n", __func__);
+        return -EINVAL;
+    }
+
+    memcpy(payload, pcm_adi->get_param_info[idx].get_param_payload,
+                     pcm_adi->get_param_info[idx].get_param_payload_size);
+    ret = agm_alloc_spr_shared_memory(pcm_idx, payload, tlv_size);
+
+    if (ret == -EALREADY)
+        ret = 0;
+
+    if (ret)
+        AGM_LOGE("%s: failed err %d for %s\n", __func__, ret, ctl->name);
+
+    free(pcm_adi->get_param_info[idx].get_param_payload);
+    pcm_adi->get_param_info[idx].get_param_payload = NULL;
+    pcm_adi->get_param_info[idx].get_param_payload_size = 0;
+    errno = ret;
+    return ret;
+}
+
+static int amp_pcm_alloc_spr_shared_memory_put(struct mixer_plugin *plugin __unused,
+                 struct snd_control *ctl, struct snd_ctl_tlv *tlv)
+{
+    struct amp_dev_info *pcm_adi = ctl->private_data;
+    int idx = ctl->private_value;
+    void *payload;
+
+    AGM_LOGV("%s: enter\n", __func__);
+    payload = &tlv->tlv[0];
+    pcm_adi->get_param_info[idx].get_param_payload_size = tlv->length;
+    pcm_adi->get_param_info[idx].get_param_payload = calloc(1,
+            pcm_adi->get_param_info[idx].get_param_payload_size);
+    if (!pcm_adi->get_param_info[idx].get_param_payload)
+        return -ENOMEM;
+
+    memcpy(pcm_adi->get_param_info[idx].get_param_payload, payload,
+            pcm_adi->get_param_info[idx].get_param_payload_size);
+
+    return 0;
+}
+
+static int amp_pcm_dealloc_spr_shared_memory_put(struct mixer_plugin *plugin __unused,
+                 struct snd_control *ctl, struct snd_ctl_tlv *tlv)
+{
+    struct amp_dev_info *pcm_adi = ctl->private_data;
+    void *payload;
+    size_t tlv_size;
+    int ret=0;
+    int pcm_idx = ctl->private_value;
+
+    AGM_LOGI("%s: enter\n", __func__);
+    if (tlv == NULL)
+        return -EINVAL;
+
+    if (pcm_adi->get_param_info->get_param_payload) {
+        free(pcm_adi->get_param_info->get_param_payload);
+        pcm_adi->get_param_info->get_param_payload = NULL;
+    }
+    payload = &tlv->tlv[0];
+    if (payload == NULL) {
+        return -EINVAL;
+    }
+
+    tlv_size = tlv->length;
+    ret = agm_dealloc_spr_shared_memory(pcm_idx, payload, tlv_size);
+    return ret;
+}
+
+static int amp_pcm_dealloc_spr_shared_memory_get(struct mixer_plugin *plugin __unused,
+                 struct snd_control *ctl, struct snd_ctl_tlv *tlv)
+{
+    return 0;
+}
+
 /* Dummy implementation for flush_get */
 static int amp_pcm_flush_get(struct mixer_plugin *plugin __unused,
                 struct snd_control *ctl __unused, struct snd_ctl_elem_value *ev __unused)
@@ -1735,6 +1853,14 @@ static struct snd_value_tlv_bytes pcm_getparam_bytes =
     SND_VALUE_TLV_BYTES(128 * 1024, amp_pcm_get_param_get, amp_pcm_get_param_put);
 static struct snd_value_tlv_bytes pcm_event_bytes =
     SND_VALUE_TLV_BYTES(128 * 1024, amp_pcm_event_get, amp_pcm_event_put);
+static struct snd_value_tlv_bytes pcm_get_available_frame_count_bytes =
+    SND_VALUE_TLV_BYTES(4, amp_pcm_available_frame_count_get, amp_pcm_available_frame_count_put);
+static struct snd_value_tlv_bytes pcm_alloc_spr_shared_memory_bytes =
+    SND_VALUE_TLV_BYTES(512*1024, amp_pcm_alloc_spr_shared_memory_get,
+            amp_pcm_alloc_spr_shared_memory_put);
+static struct snd_value_tlv_bytes pcm_dealloc_spr_shared_memory_bytes =
+    SND_VALUE_TLV_BYTES(512*1024, amp_pcm_dealloc_spr_shared_memory_get,
+            amp_pcm_dealloc_spr_shared_memory_put);
 static struct snd_value_bytes pcm_buf_info_bytes =
     SND_VALUE_BYTES(512 - 16);
 static struct snd_value_bytes pcm_write_datapath_params_bytes =
@@ -1873,6 +1999,34 @@ static void amp_create_pcm_get_tag_info_ctl(struct amp_priv *amp_priv,
                     pval, pdata);
 }
 
+static void amp_create_pcm_alloc_spr_shared_memory_ctl(struct amp_priv *amp_priv,
+     char *name, int ctl_idx, int pval, void *pdata)
+{
+
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+    char *ctl_name = AMP_PRIV_GET_CTL_NAME_PTR(amp_priv, ctl_idx);
+
+    snprintf(ctl_name, AIF_NAME_MAX_LEN + 16, "%s %s",
+            name, amp_pcm_ctl_name_extn[PCM_CTL_NAME_ALLOC_SPR_SHARED_MEMORY]);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl, ctl_name, pcm_alloc_spr_shared_memory_bytes,
+            pval, pdata);
+    AGM_LOGI("Exiting amp_create_pcm_alloc_spr_shared_memory_ctl");
+}
+
+static void amp_create_pcm_dealloc_spr_shared_memory_ctl(struct amp_priv *amp_priv,
+     char *name, int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+    char *ctl_name = AMP_PRIV_GET_CTL_NAME_PTR(amp_priv, ctl_idx);
+
+    snprintf(ctl_name, AIF_NAME_MAX_LEN + 16, "%s %s",
+            name, amp_pcm_ctl_name_extn[PCM_CTL_NAME_DEALLOC_SPR_SHARED_MEMORY]);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl, ctl_name, pcm_dealloc_spr_shared_memory_bytes,
+            pval, pdata);
+}
+
 /* TX only mixer control creations here */
 static void amp_create_pcm_loopback_ctl(struct amp_priv *amp_priv,
             char *pname, int ctl_idx, struct snd_value_enum *e,
@@ -1955,6 +2109,14 @@ static void amp_create_pcm_bufinfo_ctl(struct amp_priv *amp_priv,
     INIT_SND_CONTROL_BYTES(ctl, ctl_name, amp_pcm_buf_info_get,
             amp_pcm_buf_info_put, pcm_buf_info_bytes,
             pval, pdata);
+}
+static void amp_create_pcm_get_available_frame_count_ctl(struct amp_priv *amp_priv, char *name, int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+    char *ctl_name = AMP_PRIV_GET_CTL_NAME_PTR(amp_priv, ctl_idx);
+
+    snprintf(ctl_name, AIF_NAME_MAX_LEN + 16, "%s %s", name, amp_pcm_ctl_name_extn[PCM_CTL_NAME_GET_AVAILABLE_FRAME_COUNT]);
+    INIT_SND_CONTROL_TLV_BYTES(ctl, ctl_name, pcm_get_available_frame_count_bytes, pval, pdata);
 }
 
 static void amp_create_pcm_write_with_metadata_ctl(struct amp_priv *amp_priv,
@@ -2142,6 +2304,12 @@ static int amp_form_common_pcm_ctls(struct amp_priv *amp_priv, int *ctl_idx,
         amp_create_pcm_get_param_ctl(amp_priv, name, (*ctl_idx)++,
                         i, pcm_adi);
         amp_create_pcm_bufinfo_ctl(amp_priv, name, (*ctl_idx)++,
+                        idx, pcm_adi);
+        amp_create_pcm_get_available_frame_count_ctl(amp_priv, name, (*ctl_idx)++,
+                        idx, pcm_adi);
+        amp_create_pcm_alloc_spr_shared_memory_ctl(amp_priv, name, (*ctl_idx)++,
+                        idx, pcm_adi);
+        amp_create_pcm_dealloc_spr_shared_memory_ctl(amp_priv, name, (*ctl_idx)++,
                         idx, pcm_adi);
     }
 

@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2023,2025 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -1149,6 +1149,24 @@ int graph_get_config(struct graph_obj *graph_obj, void *payload,
         AGM_LOGE("graph_get_config failed %d", ret);
     }
     pthread_mutex_unlock(&graph_obj->lock);
+
+    return ret;
+}
+
+int graph_get_avail_buffer_size(struct graph_obj *graph_obj, bool is_playback, uint32_t *bytes)
+{
+    int ret = 0;
+
+    if (!graph_obj) {
+        AGM_LOGE("graph object not set\n");
+        return -EINVAL;
+    }
+
+    ret = gsl_get_avail_buffer_size(graph_obj->graph_handle, is_playback, bytes);
+    if (ret) {
+        ret = ar_err_get_lnx_err_code(ret);
+        AGM_LOGE("gsl_get_avail_buffer_size failed with error %d\n", ret);
+    }
 
     return ret;
 }
@@ -2344,4 +2362,46 @@ static void print_graph_alias(const struct agm_meta_data_gsl *meta_data_kv)
         return;
     }
     AGM_LOGD("GKV Alias %s\n", acdb_string);
+}
+
+int graph_alloc_spr_shared_memory(struct graph_obj *graph_obj, void *payload,
+                      size_t payload_size)
+{
+     int ret = 0;
+     if (graph_obj == NULL) {
+         AGM_LOGE("invalid graph object\n");
+         return -EINVAL;
+     }
+
+     pthread_mutex_lock(&graph_obj->lock);
+     ret = gsl_ioctl(graph_obj->graph_handle, GSL_CMD_SHARED_MEM_CUSTOM_ALLOC_MAP, payload,
+             payload_size);
+     if (ret !=0) {
+         ret = ar_err_get_lnx_err_code(ret);
+         AGM_LOGE("failed to allocate spr shared memory %d\n", ret);
+     }
+
+     pthread_mutex_unlock(&graph_obj->lock);
+     return ret;
+}
+
+int graph_dealloc_spr_shared_memory(struct graph_obj *graph_obj, void *payload,
+                      size_t payload_size)
+{
+     int ret = 0;
+     if (graph_obj == NULL) {
+         AGM_LOGE("invalid graph object\n");
+         return -EINVAL;
+     }
+
+     pthread_mutex_lock(&graph_obj->lock);
+     ret = gsl_ioctl(graph_obj->graph_handle, GSL_CMD_SHARED_MEM_CUSTOM_DEALLOC_MAP, payload,
+             payload_size);
+     if (ret !=0) {
+         ret = ar_err_get_lnx_err_code(ret);
+         AGM_LOGE("failed to deallocate spr shared memory %d\n", ret);
+     }
+
+     pthread_mutex_unlock(&graph_obj->lock);
+     return ret;
 }

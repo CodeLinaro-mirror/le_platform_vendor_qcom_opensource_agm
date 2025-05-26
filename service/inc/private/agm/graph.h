@@ -25,6 +25,11 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #ifndef GPH_OBJ_H
@@ -309,6 +314,8 @@ int graph_set_config_with_tag(struct graph_obj *gph_obj,
 
 int graph_get_config(struct graph_obj *graph_obj, void *payload,
                      size_t payload_size);
+
+int graph_get_avail_buffer_size(struct graph_obj *graph_obj, bool is_playback, uint32_t *bytes);
 
 int graph_set_cal(struct graph_obj *gph_obj,
                               struct agm_meta_data_gsl *meta_data);

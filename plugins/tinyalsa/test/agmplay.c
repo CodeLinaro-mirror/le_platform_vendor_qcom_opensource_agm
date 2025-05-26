@@ -27,7 +27,7 @@
 ** DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -70,7 +70,8 @@ struct chunk_fmt {
 
 static int close = 0;
 
-void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned int *device_kv,
+void play_sample(FILE *file, unsigned int card, unsigned int device,
+                unsigned int period_size, unsigned int period_count,unsigned int *device_kv,
                  unsigned int stream_kv, unsigned int instance_kv, unsigned int *devicepp_kv,
                  struct chunk_fmt fmt, bool haptics, char **intf_name, int intf_num, bool is_24_LE);
 
@@ -84,6 +85,7 @@ void stream_close(int sig)
 static void usage(void)
 {
     printf(" Usage: %s file.wav [-help print usage] [-D card] [-d device]\n"
+           " [-p period_size] [-n n_periods]\n"
            " [-num_intf num of interfaces followed by interface name]\n"
            " [-i intf_name] : Can be multiple if num_intf is more than 1\n"
            " [-dkv device_kv] : Can be multiple if num_intf is more than 1\n"
@@ -111,6 +113,8 @@ int main(int argc, char **argv)
     char **intf_name = NULL;
     char *filename;
     int more_chunks = 1, ret = 0;
+    unsigned int period_size = 1024;
+    unsigned int period_count = 4;
     bool is_24_LE = false;
     unsigned int *devicepp_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
     unsigned int *device_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
@@ -174,6 +178,14 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 card = atoi(*argv);
+        } else if (strcmp(*argv, "-p") == 0) {
+            argv++;
+            if (*argv)
+                period_size = atoi(*argv);
+        } else if (strcmp(*argv, "-n") == 0) {
+            argv++;
+            if (*argv)
+                period_count = atoi(*argv);
         } else if (strcmp(*argv, "-num_intf") == 0) {
             argv++;
             if (*argv)
@@ -245,7 +257,9 @@ int main(int argc, char **argv)
     if (intf_name == NULL)
         return 1;
 
-    play_sample(file, card, device, device_kv, stream_kv, instance_kv, devicepp_kv,
+    play_sample(file, card, device,
+                 period_size, period_count,
+                 device_kv, stream_kv, instance_kv, devicepp_kv,
                  chunk_fmt, haptics, intf_name, intf_num, is_24_LE);
 
     fclose(file);
@@ -259,7 +273,8 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned int *device_kv,
+void play_sample(FILE *file, unsigned int card, unsigned int device,
+                unsigned int period_size, unsigned int period_count, unsigned int *device_kv,
                  unsigned int stream_kv, unsigned int instance_kv, unsigned int *devicepp_kv,
                  struct chunk_fmt fmt, bool haptics, char **intf_name, int intf_num, bool is_24_LE)
 {
@@ -289,8 +304,8 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
     memset(&config, 0, sizeof(config));
     config.channels = fmt.num_channels;
     config.rate = fmt.sample_rate;
-    config.period_size = 1024;
-    config.period_count = 4;
+    config.period_size = period_size;
+    config.period_count = period_count;
     if (fmt.bits_per_sample == 32) {
         if (is_24_LE)
             config.format = PCM_FORMAT_S24_LE;
