@@ -27,6 +27,6 @@ endif
 # install xml files under /etc
 root_etcdir      = "/etc"
 #TODO:file path select based on target name
-root_etc_SCRIPTS = ./configs/qcm6490/card-defs.xml
+root_etc_SCRIPTS = ./configs/qcs6490/card-defs.xml
 install-data-hook:
 	        chmod  go-x $(DESTDIR)$(root_etcdir)/card-defs.xml
