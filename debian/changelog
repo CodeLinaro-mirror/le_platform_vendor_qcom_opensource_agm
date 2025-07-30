@@ -1,3 +1,14 @@
+qcom-agm (2.0.0) unstable; urgency=low
+
+  * Introduced new APIs for SPR shared memory allocation and deallocation.
+  * Added support for retrieving available frame count using GSL.
+  * Added hs0 interface support and period_size setting in agmplay.
+  * Introduced get_timestamp API for tinyalsa test.
+  * Updated Debian package control file metadata.
+  * Improved internal plugin handling and session timing.
+
+ -- Tejas Vijay Kanfade <tkanfade@qti.qualcomm.com>  Thu, 24 Jul 2025 22:34:57 -0700
+
 qcom-agm (1.0.0) unstable; urgency=low
 
   * Initial release.
