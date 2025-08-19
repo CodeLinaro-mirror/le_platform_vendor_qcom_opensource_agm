@@ -16,7 +16,7 @@ AC_PROG_LIBTOOL
 AM_PROG_AR
 AC_PROG_CXX
 
-m4_define([LT_MAJOR], [1])
+m4_define([LT_MAJOR], [2])
 m4_define([LT_MINOR], [0])
 m4_define([LT_PATCH], [0])
 
