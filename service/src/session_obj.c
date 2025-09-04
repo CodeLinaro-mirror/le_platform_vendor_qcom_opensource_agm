@@ -26,8 +26,8 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: session"
@@ -69,7 +69,19 @@ char tracestr[100] = "agm: ";
 
 #define GSL_EVENT_SRC_MODULE_ID_GSL 0x2001 // DO NOT CHANGE
 
+#ifdef AUDIO_FEATURE_ENABLED_GCOV
+extern void __gcov_dump(void);
+#define GCOV_DUMP() \
+    do { \
+        AGM_LOGD("agm: start dump gcov"); \
+        __gcov_dump(); \
+        AGM_LOGD("agm: end dump gcov"); \
+    } while(0)
+#else
+#define GCOV_DUMP()
+#endif
 //forward declarations
+static struct session_pool *sess_pool;
 static int session_close(struct session_obj *sess_obj);
 static int session_set_loopback(struct session_obj *sess_obj,
                            uint32_t session_id, bool enable);
@@ -498,8 +510,8 @@ static int session_set_ec_ref(struct session_obj *sess_obj, uint32_t aif_id,
 
 
     ret = device_get_obj(aif_id, &dev_obj);
-    if (ret) {
-        AGM_LOGE("Error:%d, unable to get dev_obj with aif_id=%u\n",
+    if (ret || !dev_obj) {
+        AGM_LOGE("Error:%d, unable to get dev_obj with aif_id=%d\n",
                                                  ret, aif_id);
         goto done;
     }
@@ -1113,8 +1125,8 @@ static int session_start(struct session_obj *sess_obj)
              */
             if (sess_obj->ec_ref_state == true) {
                 ret = device_get_obj(sess_obj->ec_ref_aif_id, &ec_ref_dev_obj);
-                if (ret) {
-                    AGM_LOGE("Error:%d getting device object with aif id:%u\n",
+                if (ret || !ec_ref_dev_obj) {
+                    AGM_LOGE("Error:%d getting device object with aif id:%d\n",
                             ret, sess_obj->ec_ref_aif_id);
                     goto done;
                 }
@@ -1382,6 +1394,7 @@ static int session_close(struct session_obj *sess_obj)
     pthread_mutex_unlock(&hwep_lock);
     sess_obj->state = SESSION_CLOSED;
 done:
+    GCOV_DUMP();
     AGM_LOGD("exit, ret %d", ret);
     return ret;
 }
@@ -1749,7 +1762,9 @@ int session_obj_set_sess_aif_cal(struct session_obj *sess_obj,
     int ret = 0;
     struct aif *aif_obj = NULL;
     struct agm_meta_data_gsl *merged_metadata = NULL;
+    struct agm_meta_data_gsl *capture_metadata = NULL;
     struct agm_key_vector_gsl ckv;
+    struct device_obj *ec_ref_dev_obj = NULL;
 
     pthread_mutex_lock(&sess_obj->lock);
     if (aif_id < UINT_MAX) {
@@ -1789,6 +1804,39 @@ int session_obj_set_sess_aif_cal(struct session_obj *sess_obj,
             AGM_LOGE("Error:%d setting calibration on sess_id:%u, aif_id:%u\n",
                     ret, sess_obj->sess_id, aif_obj->aif_id);
         }
+        // update CKV values for EC path as well
+        if (sess_obj->ec_ref_state == true) {
+            ret = device_get_obj(sess_obj->ec_ref_aif_id, &ec_ref_dev_obj);
+            if (ret || !ec_ref_dev_obj) {
+                AGM_LOGE("Error:%d getting device object with aif id:%d\n",
+                        ret, sess_obj->ec_ref_aif_id);
+                goto done;
+            }
+            capture_metadata = session_get_merged_metadata_without_aif(sess_obj);
+            if (!capture_metadata) {
+                ret = -ENOMEM;
+                AGM_LOGE("Error:%d, merging metadata with session id=%d\n",
+                                             ret, sess_obj->sess_id);
+                goto done;
+            }
+            metadata_free(merged_metadata);
+            free(merged_metadata);
+            pthread_mutex_lock(&ec_ref_dev_obj->lock);
+            merged_metadata = metadata_merge(2, capture_metadata, &ec_ref_dev_obj->metadata);
+            pthread_mutex_unlock(&ec_ref_dev_obj->lock);
+            if (!merged_metadata) {
+                ret = -ENOMEM;
+                AGM_LOGE("Error:%d, merging metadata with capture \
+                           session id=%d ec aif_id:%d \n",
+                           ret, sess_obj->sess_id, sess_obj->ec_ref_aif_id);
+                goto done;
+            }
+            ret = graph_set_cal(sess_obj->graph, merged_metadata);
+            if (ret) {
+                AGM_LOGE("Error:%d setting EC calibration on sess_id:%d, aif_id:%d\n",
+                        ret, sess_obj->sess_id, sess_obj->ec_ref_aif_id);
+            }
+        }
     } else {
         if (sess_obj->state == SESSION_CLOSED) {
             AGM_LOGE("Invalid state on sess_id:%u\n", sess_obj->sess_id);
@@ -1808,6 +1856,10 @@ int session_obj_set_sess_aif_cal(struct session_obj *sess_obj,
     }
 
 done:
+    if (capture_metadata) {
+        metadata_free(capture_metadata);
+        free(capture_metadata);
+    }
     if (merged_metadata) {
         metadata_free(merged_metadata);
         free(merged_metadata);
@@ -1882,9 +1934,9 @@ int session_obj_get_tag_with_module_info(struct session_obj *sess_obj,
     struct aif *aif_obj = NULL;
     struct agm_meta_data_gsl *merged_metadata = NULL;
     enum agm_session_mode sess_mode = sess_obj->stream_config.sess_mode;
-
+    AGM_LOGI(": aif_id=%d , session mode=%d", aif_id , sess_mode);
     pthread_mutex_lock(&sess_obj->lock);
-    if (sess_mode != AGM_SESSION_NON_TUNNEL) {
+    if (sess_mode != AGM_SESSION_NON_TUNNEL && sess_mode != AGM_SESSION_NO_CONFIG) {
         if (aif_id < UINT_MAX) {
             ret = aif_obj_get(sess_obj, aif_id, &aif_obj);
             if (ret) {
@@ -2391,7 +2443,7 @@ int session_obj_flush(struct session_obj *sess_obj)
     list_for_each_safe(node, next, &sess_obj->cb_pool) {
         sess_cb = node_to_item(node, struct session_cb, node);
         if (sess_cb && sess_cb->cb) {
-            event_params->event_id = AGM_EVENT_EARLY_EOS;
+            event_params->event_id = AGM_EVENT_EARLY_EOS_INTERNAL;
             sess_cb->cb(sess_obj->sess_id,
                         (struct agm_event_cb_params *)event_params,
                         sess_cb->client_data);
@@ -2458,6 +2510,11 @@ int session_obj_read(struct session_obj *sess_obj, void *buff, size_t *count)
     ret = graph_read(sess_obj->graph, &buffer, count);
     if (ret) {
         AGM_LOGE("Error:%d reading from graph\n", ret);
+    } else if (*count < buffer.size) {
+        /* If read a partial buffer, reset the other data to 0 to avoid
+         * unexpected noise issue.
+         */
+        memset((uint8_t *)buff + *count, 0, buffer.size - *count);
     }
 
 done:

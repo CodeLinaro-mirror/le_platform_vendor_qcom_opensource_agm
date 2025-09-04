@@ -27,8 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
-**
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 **/
 
@@ -42,10 +41,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <snd-card-def.h>
 #include <stdbool.h>
 #include <agm/device.h>
 #include <agm/metadata.h>
 #include <agm/utils.h>
+#include <fcntl.h>
 #ifdef DEVICE_USES_ALSALIB
 #include <alsa/asoundlib.h>
 #else
@@ -62,6 +63,13 @@
 #define LOG_MASK AGM_MOD_FILE_DEVICE
 #include <log_utils.h>
 #endif
+
+#ifndef NON_ALSA_CARD
+#define NON_ALSA_CARD 100
+#endif
+
+#define TRUE 1
+#define FALSE 0
 
 #define BUF_SIZE 1024
 #define FILE_PATH_EXTN_MAX_SIZE 80
@@ -206,11 +214,6 @@ int device_open(struct device_obj *dev_obj)
 
     obj = device_get_pcm_obj(dev_obj);
 
-    snprintf(pcm_name, sizeof(pcm_name), "hw:%u,%u", obj->card_id, obj->pcm_id);
-
-    stream = (obj->hw_ep_info.dir == AUDIO_OUTPUT) ?
-             SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
-
     pthread_mutex_lock(&obj->lock);
 
     if (obj->group_data)
@@ -225,6 +228,14 @@ int device_open(struct device_obj *dev_obj)
         goto done;
     }
 
+    if (obj->has_no_alsa_ops)
+        goto update_state;
+
+    snprintf(pcm_name, sizeof(pcm_name), "hw:%u,%u", obj->card_id, obj->pcm_id);
+
+    stream = (obj->hw_ep_info.dir == AUDIO_OUTPUT) ?
+             SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
+
     if (grp_data && !grp_data->has_multiple_dai_link)
         media_config = &grp_data->media_config.config;
     else
@@ -236,13 +247,14 @@ int device_open(struct device_obj *dev_obj)
     period_size = (MAX_PERIOD_BUFFER)/(channels *
                           (get_pcm_bits_per_sample(media_config->format)/8));
     period_count = DEFAULT_PERIOD_COUNT;
-#ifndef BYPASS_ALSA_HW
+
+ #ifndef BYPASS_ALSA_HW
     ret = snd_pcm_open(&pcm, pcm_name, stream, 0);
     if (ret < 0) {
         AGM_LOGE("%s: Unable to open PCM device %s", __func__, pcm_name);
         goto done;
     }
-#endif
+
 
     snd_pcm_hw_params_alloca(&hwparams);
 
@@ -264,8 +276,10 @@ int device_open(struct device_obj *dev_obj)
                  __func__, pcm_name, rate, channels, format);
         goto done;
     }
+ #endif
 
     obj->pcm = pcm;
+update_state:
     obj->state = DEV_OPENED;
     obj->refcnt.open++;
     if (grp_data)
@@ -346,6 +360,9 @@ int device_open(struct device_obj *dev_obj)
         goto done;
     }
 
+    if (obj->has_no_alsa_ops)
+        goto update_state;
+
     memset(&config, 0, sizeof(struct pcm_config));
     if (grp_data && !grp_data->has_multiple_dai_link)
         media_config = &grp_data->media_config.config;
@@ -369,7 +386,7 @@ int device_open(struct device_obj *dev_obj)
     config.stop_threshold = INT_MAX;
 
     pcm_flags = (obj->hw_ep_info.dir == AUDIO_OUTPUT) ? PCM_OUT : PCM_IN;
-#ifndef BYPASS_ALSA_HW
+ #ifndef BYPASS_ALSA_HW
     pcm = pcm_open(obj->card_id, obj->pcm_id, pcm_flags,
                 &config);
     if (!pcm || !pcm_is_ready(pcm)) {
@@ -380,8 +397,9 @@ int device_open(struct device_obj *dev_obj)
         ret = -EIO;
         goto done;
     }
-#endif
+ #endif
     obj->pcm = pcm;
+update_state:
     obj->state = DEV_OPENED;
     obj->refcnt.open++;
     if (grp_data)
@@ -419,19 +437,22 @@ int device_prepare(struct device_obj *dev_obj)
         pthread_mutex_unlock(&obj->lock);
         return ret;
     }
+    if (obj->has_no_alsa_ops)
+        goto update_state;
+
 #ifndef BYPASS_ALSA_HW
 #ifdef DEVICE_USES_ALSALIB
     ret = snd_pcm_prepare(obj->pcm);
 #else
     ret = pcm_prepare(obj->pcm);
 #endif
-#endif // BYPASS_ALSA_HW
+#endif
     if (ret) {
         AGM_LOGE("PCM device %u prepare failed, ret = %d\n",
               obj->pcm_id, ret);
         goto done;
     }
-
+update_state:
     obj->state = DEV_PREPARED;
     obj->refcnt.prepare++;
 
@@ -510,17 +531,20 @@ int device_stop(struct device_obj *dev_obj)
 
     obj->refcnt.start--;
     if (obj->refcnt.start == 0) {
+        if (obj->has_no_alsa_ops)
+            goto update_state;
 #ifndef BYPASS_ALSA_HW
 #ifdef DEVICE_USES_ALSALIB
         ret = snd_pcm_drop(obj->pcm);
 #else
         ret = pcm_stop(obj->pcm);
 #endif
-#endif // BYPASS_ALSA_HW
+#endif
         if (ret) {
             AGM_LOGE("PCM device %u stop failed, ret = %d\n",
                     obj->pcm_id, ret);
         }
+update_state:
         obj->state = DEV_STOPPED;
     }
 
@@ -558,17 +582,20 @@ int device_close(struct device_obj *dev_obj)
     }
 
     if (--obj->refcnt.open == 0) {
+        if (obj->has_no_alsa_ops)
+            goto update_state;
 #ifndef BYPASS_ALSA_HW
 #ifdef DEVICE_USES_ALSALIB
         ret = snd_pcm_close(obj->pcm);
 #else
         ret = pcm_close(obj->pcm);
 #endif
-#endif //BYPASS_ALSA_HW
+#endif
         if (ret) {
             AGM_LOGE("PCM device %u close failed, ret = %d\n",
                      obj->pcm_id, ret);
         }
+update_state:
         obj->state = DEV_CLOSED;
         obj->refcnt.prepare = 0;
         obj->refcnt.start = 0;
@@ -880,11 +907,17 @@ int device_get_channel_map(struct device_obj *dev_obj, uint32_t **chmap)
     ctl = mixer_get_ctl_by_name(mixer, mixer_str);
     if (!ctl) {
         AGM_LOGE("Invalid mixer control: %s\n", mixer_str);
-        ret = -ENOENT;
-        goto err_get_ctl;
+        ctl = mixer_get_ctl_by_name_and_device(mixer, (dev_obj->hw_ep_info.dir == AUDIO_OUTPUT) ?
+                    "Playback Channel Map" : "Capture Channel Map", dev_obj->pcm_id);
+        if (!ctl) {
+            ret = -ENOENT;
+            goto err_get_ctl;
+        }
+        ret = mixer_ctl_get_array(ctl, payload, 2 * sizeof(uint32_t));
     }
-
-    ret = mixer_ctl_get_array(ctl, payload, 16 * sizeof(uint32_t));
+    else {
+         ret = mixer_ctl_get_array(ctl, payload, 16 * sizeof(uint32_t));
+    }
     if (ret < 0) {
         AGM_LOGE("Failed to mixer_ctl_get_array\n");
         goto err_get_ctl;
@@ -963,14 +996,13 @@ done:
     return grp_data;
 }
 
-int parse_snd_card(void)
+static int parse_hw_snd_card()
 {
+    int count = 0, i = 0;
     char buffer[MAX_BUF_SIZE];
-    unsigned int count = 0;
     FILE *fp;
-    int ret = 0;
-    struct listnode *dev_node, *temp;
     struct device_obj *dev_obj = NULL;
+    int ret = 0;
 
     fp = fopen(PCM_DEVICE_FILE, "r");
     if (!fp) {
@@ -979,17 +1011,14 @@ int parse_snd_card(void)
         return -ENODEV;
     }
 
-    list_init(&device_list);
-    list_init(&device_group_data_list);
-    num_group_devices = 0;
     while (fgets(buffer, MAX_BUF_SIZE - 1, fp) != NULL)
     {
         dev_obj = calloc(1, sizeof(struct device_obj));
 
         if (!dev_obj) {
             AGM_LOGE("failed to allocate device_obj mem\n");
-            ret = -ENOMEM;
-            goto free_device;
+            fclose(fp);
+            return -ENOMEM;
         }
 
         AGM_LOGV("buffer: %s\n", buffer);
@@ -1032,9 +1061,121 @@ int parse_snd_card(void)
 
         dev_obj = NULL;
     }
+
+    fclose(fp);
+    return count;
+}
+
+
+static int parse_virtual_snd_card()
+{
+    int count = 0, i = 0;
+    int ret = 0, num_nodes = 0;
+    struct device_obj *dev_obj = NULL;
+    void *card_node = NULL;
+    void **node_list = NULL;
+
+    /* Parse non-alsa backend from card-defs.xml */
+    card_node = snd_card_def_get_card(NON_ALSA_CARD);
+    if (!card_node)
+        return 0;
+
+    num_nodes = snd_card_def_get_num_node(card_node, SND_NODE_TYPE_PCM);
+    if (num_nodes == 0)
+        goto done;
+
+    node_list = calloc(num_nodes, sizeof(*node_list));
+    if (!node_list) {
+        AGM_LOGE("%s: alloc for node_list failed\n", __func__);
+        ret = -ENOMEM;
+        goto done;
+    }
+
+    ret = snd_card_def_get_nodes_for_type(card_node,
+                                          SND_NODE_TYPE_PCM,
+                                          node_list, num_nodes);
+    if (ret) {
+        AGM_LOGI("%s: failed to get non-alsa pcm node list, err %d, continuing\n", ret);
+        goto done;
+    }
+
+    for (i = 0; i < num_nodes; i++) {
+        void *node = node_list[i];
+        uint32_t is_backend = 1;
+        char *name = NULL, *so_name = NULL;
+
+        snd_card_def_get_int(node, "backend", &is_backend);
+        if (is_backend == 0)
+            continue;
+
+        dev_obj = calloc(1, sizeof(struct device_obj));
+        if (!dev_obj) {
+            AGM_LOGE("failed to allocate device_obj mem\n");
+            ret = -ENOMEM;
+            goto done;
+        }
+        dev_obj->card_id = NON_ALSA_CARD;
+
+        snd_card_def_get_str(node, "so-name", &so_name);
+	if (so_name == NULL)
+            dev_obj->has_no_alsa_ops = true;
+
+        snd_card_def_get_int(node, "id", &dev_obj->pcm_id);
+        snd_card_def_get_str(node, "name", &name);
+        if (!name) {
+            free(dev_obj);
+            continue;
+        }
+        strlcpy(dev_obj->name, name, strlen(name) + 1);
+        ret = populate_device_hw_ep_info(dev_obj);
+        AGM_LOGE("%d:%d:%s:%d\n", dev_obj->card_id, dev_obj->pcm_id, dev_obj->name, dev_obj->has_no_alsa_ops);
+        if (ret) {
+            AGM_LOGE("hw_ep_info parsing failed %s\n",
+                               dev_obj->name);
+            free(dev_obj);
+            ret = 0;
+            continue;
+        }
+        pthread_mutex_init(&dev_obj->lock, (const pthread_mutexattr_t *) NULL);
+        list_add_tail(&device_list, &dev_obj->list_node);
+        count++;
+        dev_obj = NULL;
+    }
+done:
+    if (card_node)
+        snd_card_def_put_card(card_node);
+    return (ret < 0) ? ret : count;
+}
+
+int parse_snd_card()
+{
+    unsigned int count = 0;
+    int ret = 0;
+    struct listnode *dev_node, *temp;
+    struct device_obj *dev_obj = NULL;
+
+    list_init(&device_list);
+    list_init(&device_group_data_list);
+    num_group_devices = 0;
+
+    ret = parse_hw_snd_card();
+    if (ret < 0)
+        goto free_device;
+
+    count = ret;
+
+    ret = parse_virtual_snd_card();
+    if (ret < 0)
+        goto free_device;
+
+    count += ret;
     /*
-     * count 0 indicates that expected sound card was not registered
-     * inform the upper layers to try again after sometime.
+     * count 0 indicates that there is no valid pcm node.
+     * For HW sndcard, it means that expected sound card
+     * is not registered. For virtual pcm node, it means
+     * there is no backend pcm node defined in card-defs.xml.
+     * Inform the upper layers to try again after sometime if
+     * there is no valid pcm node, i.e. if count is 0.
      */
     if (count == 0) {
         ret = -EAGAIN;
@@ -1042,8 +1183,8 @@ int parse_snd_card(void)
     }
 
     num_audio_intfs = count;
-    goto close_file;
 
+    return 0;
 free_device:
     list_for_each_safe(dev_node, temp, &device_list) {
         dev_obj = node_to_item(dev_node, struct device_obj, list_node);
@@ -1054,8 +1195,6 @@ free_device:
 
     list_remove(&device_group_data_list);
     list_remove(&device_list);
-close_file:
-    fclose(fp);
     return ret;
 }
 
@@ -1103,9 +1242,8 @@ static int wait_for_snd_card_to_online()
 int device_init()
 {
     int ret = 0;
-#ifdef BYPASS_SND_CARD_CHECK
-     AGM_LOGI("snd card status check skipped for Automotive Hypervisor");
-#else
+
+#ifndef CARD_STATE_UNSUPPORTED
     ret = wait_for_snd_card_to_online();
     if (ret) {
         AGM_LOGE("Not found any SND card online\n");

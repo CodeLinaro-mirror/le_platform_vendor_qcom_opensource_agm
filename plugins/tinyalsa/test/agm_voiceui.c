@@ -101,7 +101,7 @@ static void event_wait_thread_loop(void *context)
 {
     struct mixer *mixer = (struct mixer *)context;
     int ret = 0;
-    struct ctl_event mixer_event = {0};
+    struct mixer_ctl_event mixer_event = {0};
 
     printf("subscribing for event\n");
     mixer_subscribe_events(mixer, 1);
@@ -113,8 +113,8 @@ static void event_wait_thread_loop(void *context)
     } else if (ret > 0) {
         ret = mixer_read_event(mixer, &mixer_event);
         if (ret >= 0) {
-            printf("Event Received %s\n",  mixer_event.data.elem.id.name);
-            read_event_data(mixer, (char *)mixer_event.data.elem.id.name);
+            printf("Event Received %s\n",  mixer_event.data.element.id.name);
+            read_event_data(mixer, mixer_event.data.element.id.name);
         } else {
             printf("%s: mixer_read failed, ret = %d\n", __func__, ret);
         }
@@ -280,7 +280,7 @@ void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_in
 
     dev_config.rate = config.rate;
     dev_config.ch = config.channels;
-    dev_config.bits = get_pcm_bit_width(config.format);
+    dev_config.bits = get_tinyalsa_pcm_bit_width(config.format);
     dev_config.format = config.format;
     mixer = mixer_open(card);
     if (!mixer) {

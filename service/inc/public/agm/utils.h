@@ -34,8 +34,26 @@
 #ifndef __UTILS_H__
 #include "ar_osal_error.h"
 
-#ifdef FEATURE_IPQ_OPENWRT
-#include <audio_utils/log.h>
+#ifdef AGM_USE_SYSLOG
+#include <stdint.h>
+#include <syslog.h>
+
+#ifndef ALOGD
+#define ALOGD(fmt, arg...) syslog (LOG_DEBUG, fmt, ##arg)
+#endif
+
+#ifndef ALOGI
+#define ALOGI(fmt, arg...) syslog (LOG_INFO, fmt, ##arg)
+#endif
+
+#ifndef ALOGE
+#define ALOGE(fmt, arg...) syslog (LOG_ERR, fmt, ##arg)
+#endif
+
+#ifndef ALOGV
+#define ALOGV(fmt, arg...) syslog (LOG_DEBUG, fmt, ##arg)
+#endif
+
 #else
 #include <log/log.h>
 #endif

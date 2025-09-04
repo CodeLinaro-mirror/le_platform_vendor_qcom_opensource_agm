@@ -47,7 +47,7 @@
 #include <strings.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <tinyalsa/pcm_plugin.h>
+#include <tinyalsa/plugin.h>
 #include <snd-card-def.h>
 #include <tinyalsa/asoundlib.h>
 #include <agm/utils.h>
@@ -83,7 +83,6 @@ struct pcm_plugin_pos_buf_info {
     unsigned int crossed_boundary_cnt;
     struct timespec tstamp;
     snd_pcm_uframes_t appl_ptr;  /* RW: appl ptr (0...boundary-1) */
-    snd_pcm_uframes_t avail_min; /* RW: min available frames for wakeup */
     uint32_t wall_clk_msw;
     uint32_t wall_clk_lsw;
     uint32_t frame_counter;
@@ -102,7 +101,9 @@ struct agm_pcm_priv {
     struct pcm_plugin_pos_buf_info *pos_buf;
     uint64_t handle;
     void *card_node;
+    void *dev_node;
     int session_id;
+    snd_pcm_uframes_t avail_min; /* RW: min available frames for wakeup */
     unsigned int period_size;
     snd_pcm_uframes_t total_size_frames;
     /* idx: 0: out port, 1: in port */
@@ -262,16 +263,7 @@ static void agm_pcm_plugin_apply_appl_ptr(struct agm_pcm_priv *priv,
 static void agm_pcm_plugin_apply_avail_min(struct agm_pcm_priv *priv,
         snd_pcm_uframes_t avail_min)
 {
-    struct pcm_plugin_pos_buf_info *pos = priv->pos_buf;
-
-    pos->avail_min = avail_min;
-}
-
-static snd_pcm_uframes_t agm_pcm_plugin_get_avail_min(struct agm_pcm_priv *priv)
-{
-    struct pcm_plugin_pos_buf_info *pos = priv->pos_buf;
-
-    return pos->avail_min;
+    priv->avail_min = avail_min;
 }
 
 static snd_pcm_uframes_t agm_pcm_plugin_get_appl_ptr(struct agm_pcm_priv *priv)
@@ -494,7 +486,7 @@ static int agm_pcm_hw_params(struct pcm_plugin *plugin,
     priv->total_size_frames = buffer_config->count *
             priv->period_size; /* in frames */
 
-    snd_card_def_get_int(plugin->node, "session_mode", &sess_mode);
+    snd_card_def_get_int(priv->dev_node, "session_mode", &sess_mode);
     session_config->dir = (plugin->mode & PCM_IN) ? TX : RX;
     session_config->sess_mode = sess_mode;
     AGM_LOGD("mode: %d", plugin->mode);
@@ -518,9 +510,11 @@ static int agm_pcm_sw_params(struct pcm_plugin *plugin,
     if (ret)
         return ret;
 
+    priv->avail_min = sparams->avail_min;
+
     session_config = priv->session_config;
 
-    snd_card_def_get_int(plugin->node, "session_mode", &sess_mode);
+    snd_card_def_get_int(priv->dev_node, "session_mode", &sess_mode);
 
     session_config->dir = (plugin->mode & PCM_IN) ? TX : RX;
     session_config->sess_mode = sess_mode;
@@ -540,7 +534,7 @@ static int agm_pcm_sync_ptr(struct pcm_plugin *plugin,
     int ret = 0;
 
     if (!(plugin->mode & PCM_NOIRQ))
-        return -EOPNOTSUPP;
+        return 0;
 
     ret = agm_get_session_handle(priv, &handle);
     if (ret)
@@ -565,7 +559,7 @@ static int agm_pcm_sync_ptr(struct pcm_plugin *plugin,
     if (!(sync_ptr->flags & SNDRV_PCM_SYNC_PTR_AVAIL_MIN)) {
         agm_pcm_plugin_apply_avail_min(priv, sync_ptr->c.control.avail_min);
     } else {
-        sync_ptr->c.control.avail_min = agm_pcm_plugin_get_avail_min(priv);
+        sync_ptr->c.control.avail_min = priv->avail_min;
     }
 
     sync_ptr->s.status.hw_ptr = agm_pcm_plugin_get_hw_ptr(priv);
@@ -591,6 +585,9 @@ static int agm_pcm_writei_frames(struct pcm_plugin *plugin, struct snd_xferi *x)
             agm_format_to_bits((enum pcm_format)priv->media_config->format) / 8);
 
     ret = agm_session_write(handle, buff, &count);
+    if (ret == 0)
+        x->result = x->frames;
+
     errno = ret;
 
     return ret;
@@ -612,6 +609,9 @@ static int agm_pcm_readi_frames(struct pcm_plugin *plugin, struct snd_xferi *x)
     count = x->frames * (priv->media_config->channels *
             agm_format_to_bits((enum pcm_format)priv->media_config->format) / 8);
     ret = agm_session_read(handle, buff, &count);
+    if (ret == 0)
+        x->result = x->frames;
+
     errno = ret;
 
     return ret;
@@ -720,6 +720,8 @@ static int agm_pcm_close(struct pcm_plugin *plugin)
     if (priv->buf_info) {
         if (priv->buf_info->data_buf_fd != -1)
             close(priv->buf_info->data_buf_fd);
+        if (priv->buf_info->pos_buf_fd != -1)
+            close(priv->buf_info->pos_buf_fd);
         free(priv->buf_info);
     }
 
@@ -848,6 +850,10 @@ static void* agm_pcm_mmap(struct pcm_plugin *plugin, void *addr __unused, size_t
             pos->pos_buf_addr = mmap(0, priv->buf_info->pos_buf_size,
                     PROT_READ | PROT_WRITE, MAP_SHARED,
                     priv->buf_info->pos_buf_fd, 0);
+            if (pos->pos_buf_addr == MAP_FAILED) {
+                free(pos);
+                return MAP_FAILED;
+            }
 
             priv->pos_buf = pos;
 
@@ -891,21 +897,15 @@ static int agm_pcm_munmap(struct pcm_plugin *plugin, void *addr, size_t length)
     return munmap(addr, length);
 }
 
-static int agm_pcm_ioctl(struct pcm_plugin *plugin, int cmd, ...)
+static int agm_pcm_ioctl(struct pcm_plugin *plugin, int cmd, void *arg)
 {
     struct agm_pcm_priv *priv = plugin->priv;
     uint64_t handle;
     int ret = 0;
-    va_list ap;
-    void *arg;
 
     ret = agm_get_session_handle(priv, &handle);
     if (ret)
         return ret;
-
-    va_start(ap, cmd);
-    arg = va_arg(ap, void *);
-    va_end(ap);
 
     switch (cmd) {
     case SNDRV_PCM_IOCTL_RESET:
@@ -918,24 +918,8 @@ static int agm_pcm_ioctl(struct pcm_plugin *plugin, int cmd, ...)
     return ret;
 }
 
-struct pcm_plugin_ops agm_pcm_ops = {
-    .close = agm_pcm_close,
-    .hw_params = agm_pcm_hw_params,
-    .sw_params = agm_pcm_sw_params,
-    .sync_ptr = agm_pcm_sync_ptr,
-    .writei_frames = agm_pcm_writei_frames,
-    .readi_frames = agm_pcm_readi_frames,
-    .ttstamp = agm_pcm_ttstamp,
-    .prepare = agm_pcm_prepare,
-    .start = agm_pcm_start,
-    .drop = agm_pcm_drop,
-    .mmap = agm_pcm_mmap,
-    .munmap = agm_pcm_munmap,
-    .poll = agm_pcm_poll,
-    .ioctl = (int (*)(struct pcm_plugin *, int, void *))agm_pcm_ioctl,
-};
-
-PCM_PLUGIN_OPEN_FN(agm_pcm_plugin)
+int agm_pcm_open(struct pcm_plugin **plugin, unsigned int card,
+        unsigned int device, unsigned int mode)
 {
     struct pcm_plugin *agm_pcm_plugin;
     struct agm_pcm_priv *priv;
@@ -995,8 +979,6 @@ PCM_PLUGIN_OPEN_FN(agm_pcm_plugin)
                               PCM_FORMAT_BIT(SNDRV_PCM_FORMAT_S32_LE));
 
     agm_pcm_plugin->card = card;
-    agm_pcm_plugin->ops = &agm_pcm_ops;
-    agm_pcm_plugin->node = pcm_node;
     agm_pcm_plugin->mode = mode;
     agm_pcm_plugin->constraints = &agm_pcm_constrs;
     agm_pcm_plugin->priv = priv;
@@ -1005,6 +987,7 @@ PCM_PLUGIN_OPEN_FN(agm_pcm_plugin)
     priv->buffer_config = buffer_config;
     priv->session_config = session_config;
     priv->card_node = card_node;
+    priv->dev_node = pcm_node;
     priv->session_id = session_id;
     priv->mmap_status = false;
     snd_card_def_get_int(pcm_node, "session_mode", (int *)&sess_mode);
@@ -1036,3 +1019,21 @@ err_plugin_free:
     else
        return -ret;
 }
+
+struct pcm_plugin_ops pcm_plugin_ops = {
+    .open = agm_pcm_open,
+    .close = agm_pcm_close,
+    .hw_params = agm_pcm_hw_params,
+    .sw_params = agm_pcm_sw_params,
+    .sync_ptr = agm_pcm_sync_ptr,
+    .writei_frames = agm_pcm_writei_frames,
+    .readi_frames = agm_pcm_readi_frames,
+    .ttstamp = agm_pcm_ttstamp,
+    .prepare = agm_pcm_prepare,
+    .start = agm_pcm_start,
+    .drop = agm_pcm_drop,
+    .mmap = agm_pcm_mmap,
+    .munmap = agm_pcm_munmap,
+    .poll = agm_pcm_poll,
+    .ioctl = agm_pcm_ioctl,
+};

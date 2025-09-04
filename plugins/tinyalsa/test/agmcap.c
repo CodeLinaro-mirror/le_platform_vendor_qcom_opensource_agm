@@ -230,44 +230,6 @@ int main(int argc, char **argv)
     if (intf_name == NULL)
         return 1;
 
-    if (period_size == 0) {
-        switch (rate) {
-            case 8000:
-                period_size = 40;
-                break;
-            case 12000:
-                period_size = 60;
-                break;
-            case 16000:
-                period_size = 80;
-                break;
-            case 24000:
-                period_size = 120;
-                break;
-            case 32000:
-                period_size = 160;
-                break;
-            case 44100:
-                period_size = 220;
-                break;
-            case 48000:
-                period_size = 240;
-                break;
-            case 64000:
-                period_size = 320;
-                break;
-            case 96000:
-                period_size = 480;
-                break;
-            case 192000:
-                period_size = 960;
-                break;
-            default:
-                period_size = 240;
-                break;
-        }
-    }
-
     printf("Stream kv= 0x%X, Instance kv = 0x%X, Device PP kv= 0x%X, Device kv = 0x%X\n",
             stream_kv, instance_kv, devicepp_kv, device_kv);
 
@@ -279,7 +241,7 @@ int main(int argc, char **argv)
     }
     if (config.format != PCM_FORMAT_INVALID) {
         printf("Valid format from backend_conf %d\n", config.format);
-        config.bits = get_pcm_bit_width(config.format);
+        config.bits = get_tinyalsa_pcm_bit_width(config.format);
     }
 
     header.bits_per_sample = pcm_format_to_bits(format);
@@ -432,7 +394,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
         printf("MFC not present for this graph\n");
     } else {
         if (configure_mfc(mixer, device, intf_name, TAG_STREAM_MFC,
-                     STREAM_PCM, rate, channels, get_pcm_bit_width(format), miid)) {
+                     STREAM_PCM, rate, channels, get_tinyalsa_pcm_bit_width(format), miid)) {
             printf("Failed to configure stream mfc\n");
             goto err_close_mixer;
         }

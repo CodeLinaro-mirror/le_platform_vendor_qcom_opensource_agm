@@ -1,5 +1,5 @@
 #                                               -*- Autoconf -*-
-# configure.ac -- Autoconf script for spf
+# configure.ac -- Autoconf script for agm
 #
 
 # Process this file with autoconf to produce a configure script
@@ -22,6 +22,18 @@ AC_ARG_WITH([syslog],
     [with_syslog=no])
 AM_CONDITIONAL([USE_SYSLOG], [test "x${with_syslog}" = "xyes"])
 
+AC_ARG_WITH([are_on_apps],
+    AS_HELP_STRING([--with-are-on-apps],[Enable ARE (SPF) on APPS support (default is no)]),
+    [with_are_on_apps=$withval],
+    [with_are_on_apps=no])
+AM_CONDITIONAL([USE_ARE_ON_APPS], [test "x${with_are_on_apps}" = "xyes"])
+
+AC_ARG_WITH([use_default_acdb_path],
+    AS_HELP_STRING([--with-use-default-acdb-path],[ Use default ACDB path specified by ACDB_PATH macro. (default is no)]),
+    [with_use_default_acdb_path=$withval],
+    [with_use_default_acdb_path=no])
+AM_CONDITIONAL([USE_DEFAULT_ACDB_PATH], [test "x${with_use_default_acdb_path}" = "xyes"])
+
 AC_ARG_WITH([glib],
       AC_HELP_STRING([--with-glib],
          [enable glib, Build against glib. Use this when building for HLOS systems which use glib]))
@@ -40,11 +52,11 @@ fi
 
 AM_CONDITIONAL(USE_GLIB, test "x${with_glib}" = "xyes")
 
-AC_ARG_WITH([agm_no_ipc],
-    AS_HELP_STRING([enable ipc communication to AGM (default is no)]),
-    [with_agm_no_ipc=$withval],
-    [with_agm_no_ipc=no])
-AM_CONDITIONAL([AGM_NO_IPC], [test "x${with_agm_no_ipc}" = "xyes"])
+AC_ARG_WITH([no_ipc],
+    AS_HELP_STRING([--with-no-ipc],[disable ipc communication to AGM (default is no)]),
+    [with_no_ipc=$withval],
+    [with_no_ipc=no])
+AM_CONDITIONAL([AGM_NO_IPC], [test "x${with_no_ipc}" = "xyes"])
 
 
 PKG_CHECK_MODULES([SPF], [spf])
@@ -54,12 +66,17 @@ AC_SUBST(SPF_CFLAGS)
 PKG_CHECK_MODULES([KVH2XML], [kvh2xml])
 AC_SUBST([KVH2XML_CFLAGS])
 
-#TODO: Check dependency only if --with-ipc is set
-#PKG_CHECK_MODULES(DBUS, [ dbus-1 >= 1.4.12 ], dummy=yes,
-#                 AC_MSG_ERROR(dbus-1 >= 1.4.12 is required))
+# Check dependency only if with_no_ipc is not set
+if (test "x${with_no_ipc}" = "xno"); then
+PKG_CHECK_MODULES(DBUS, [ dbus-1 >= 1.4.12 ], dummy=yes,
+                 AC_MSG_ERROR(dbus-1 >= 1.4.12 is required))
+fi
 
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
+
+AC_CHECK_FUNCS([strlcpy])
+AM_CONDITIONAL(USE_G_STR_FUNC, ! test "x$ac_cv_func_strlcpy" = "xyes")
 
 AC_CONFIG_FILES(
 Makefile

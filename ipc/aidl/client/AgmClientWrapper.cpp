@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #ifndef NDEBUG
@@ -50,7 +50,6 @@ std::shared_ptr<IAGM> getAgm() {
     std::lock_guard<std::mutex> guard(gLock);
     if (gAgmClient == nullptr) {
         const std::string instance = std::string() + IAGM::descriptor + "/default";
-        ABinderProcess_startThreadPool();
         auto binder = ::ndk::SpAIBinder(AServiceManager_waitForService(instance.c_str()));
         ALOGV("%s got binder %p", __func__, binder.get());
 

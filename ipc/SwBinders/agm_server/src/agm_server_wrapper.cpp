@@ -45,7 +45,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <binder/IMemory.h>
-#include "utils.h"
+#include <agm/utils.h>
 #include "agm_server_wrapper.h"
 
 #ifdef DYNAMIC_LOG_ENABLED

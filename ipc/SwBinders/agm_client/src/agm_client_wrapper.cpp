@@ -85,7 +85,7 @@
 #include <utils/RefBase.h>
 #include <binder/IPCThreadState.h>
 #include <pthread.h>
-#include "utils.h"
+#include <agm/utils.h>
 #ifdef DYNAMIC_LOG_ENABLED
 #include <log_xml_parser.h>
 #define LOG_MASK AGM_MOD_FILE_AGM_CLIENT_WRAPPER

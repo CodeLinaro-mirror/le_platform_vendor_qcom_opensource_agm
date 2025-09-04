@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -56,6 +56,8 @@
 #define PCM_LSB_ALIGNED                             1
 
 #define PARAM_ID_USB_AUDIO_INTF_CFG 0x080010D6
+#define PARAM_ID_DISPLAY_PORT_INTF_CFG   0x8001154
+
 
 enum {
     DEVICE = 1,
@@ -185,6 +187,12 @@ struct gsl_tag_module_info {
     /**< variable payload of type struct gsl_tag_module_info_entry */
 };
 
+struct dp_audio_config{
+  uint32_t channel_allocation;
+  uint32_t mst_idx;
+  uint32_t dptx_idx;
+};
+
 unsigned int slot_mask_map[5] = { 0, SLOT_MASK1, SLOT_MASK3, SLOT_MASK7, SLOT_MASK15};
 
 #define PADDING_8BYTE_ALIGN(x)  ((((x) + 7) & 7) ^ 7)
@@ -238,7 +246,7 @@ static enum pcm_format get_pcm_format(char *str)
     }
 }
 
-int get_pcm_bit_width(enum pcm_format fmt_id)
+int get_tinyalsa_pcm_bit_width(enum pcm_format fmt_id)
 {
     int bit_width = 16;
 
@@ -264,6 +272,38 @@ int get_pcm_bit_width(enum pcm_format fmt_id)
     }
 
     return bit_width;
+}
+
+static int get_device_channel_allocation(int num_channels)
+{
+    int channel_allocation = 0;
+
+    switch (num_channels) {
+        case 2:
+            channel_allocation = 0x0; break;
+        case 3:
+            channel_allocation = 0x02; break;
+        case 4:
+            channel_allocation = 0x06; break;
+        case 5:
+            channel_allocation = 0x0A; break;
+        case 6:
+            channel_allocation = 0x0B; break;
+        case 7:
+            channel_allocation = 0x12; break;
+        case 8:
+            channel_allocation = 0x13; break;
+        default:
+            channel_allocation = 0x0; break;
+            printf("invalid num channels: %d\n",
+                    num_channels);
+            break;
+    }
+
+    printf("num channels: %d, ca: 0x%x", num_channels,
+            channel_allocation);
+
+    return channel_allocation;
 }
 
 void start_tag(void *userdata, const XML_Char *tag_name, const XML_Char **attr)
@@ -723,23 +763,18 @@ int connect_play_pcm_to_cap_pcm(struct mixer *mixer, unsigned int p_device, unsi
         return ENOENT;
     }
 
-    if (p_device < 0) {
-        val = "ZERO";
-    } else {
-        val_len = strlen(pcm) + 4;
-        val = calloc(1, val_len);
-        if (!val) {
-            printf("val calloc failed\n");
-            free(mixer_str);
-            return -ENOMEM;
-        }
-        snprintf(val, val_len, "%s%d", pcm, p_device);
+    val_len = strlen(pcm) + 4;
+    val = calloc(1, val_len);
+    if (!val) {
+        printf("val calloc failed\n");
+        free(mixer_str);
+        return -ENOMEM;
     }
+    snprintf(val, val_len, "%s%d", pcm, p_device);
 
     ret = mixer_ctl_set_enum_by_string(ctl, val);
     free(mixer_str);
-    if (p_device >= 0)
-        free(val);
+    free(val);
 
     return ret;
 }
@@ -1158,12 +1193,6 @@ int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, in
     int ret = 0;
     uint32_t miid = 0;
 
-    ret = agm_mixer_get_miid(mixer, device, intf_name, stype, tag, &miid);
-    if (ret) {
-        printf("%s Get MIID from tag data failed\n", __func__);
-        return ret;
-    }
-
     payloadSize = sizeof(struct apm_module_param_data_t) +
                   sizeof(struct media_format_t) +
                   sizeof(struct payload_pcm_output_format_cfg_t) +
@@ -1335,6 +1364,58 @@ done:
     return ret;
 }
 
+int set_agm_dp_audio_config_metadata(char *intf_name, struct mixer *mixer, uint32_t miid, unsigned int channels)
+{
+    struct apm_module_param_data_t* header;
+    struct dp_audio_config *dpConfig;
+    uint8_t* payloadInfo = NULL;
+    struct mixer_ctl *ctl;
+    size_t payloadSize = 0;
+    char *mixer_str;
+    char *control = "setParam";
+    int ctl_len = 0, ret = 0;
+
+    payloadSize = sizeof(struct apm_module_param_data_t) +
+        sizeof(struct dp_audio_config);
+
+    if (payloadSize % 8 != 0)
+        payloadSize = payloadSize + (8 - payloadSize % 8);
+
+    payloadInfo = (uint8_t*) calloc(1, payloadSize);
+    if (!payloadInfo) {
+        printf("payloadInfo malloc failed %s\n", strerror(errno));
+        return -ENOMEM;
+    }
+
+    header = (struct apm_module_param_data_t*)payloadInfo;
+    dpConfig = (struct dp_audio_config*)(payloadInfo + sizeof(struct apm_module_param_data_t));
+    header->module_instance_id = miid;
+    header->param_id = PARAM_ID_DISPLAY_PORT_INTF_CFG;
+    header->error_code = 0x0;
+    header->param_size = payloadSize - sizeof(struct apm_module_param_data_t);
+
+    dpConfig->channel_allocation = get_device_channel_allocation(channels);
+    dpConfig->mst_idx = 0;
+    dpConfig->dptx_idx = 0;
+
+    ctl_len = strlen(intf_name) + 4 + strlen(control) + 1;
+    mixer_str = calloc(1, ctl_len);
+    if (!mixer_str) {
+        printf("alloc mixer_str fail\n");
+        return -ENOMEM;
+    }
+
+    snprintf(mixer_str, ctl_len, "%s %s", intf_name, control);
+    ctl = mixer_get_ctl_by_name(mixer, mixer_str);
+    if (!ctl) {
+        printf("%s: invalid mixer control:\n", __func__);
+        return -EINVAL;
+    }
+
+    ret =  mixer_ctl_set_array(ctl, payloadInfo, payloadSize);
+    return ret;
+}
+
 int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
                                   enum stream_type stype, char *intf_name,
                                   unsigned int devicepp_kv)
@@ -1350,6 +1431,11 @@ int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val,
     uint32_t gkv_size, ckv_size, prop_size, index = 0;
     int ctl_len = 0, ret = 0, offset = 0;
     char *type = intf_name;
+
+    if(devicepp_kv == 0) {
+        printf("No DevicePP.");
+        num_gkv = 1;
+    }
 
     ret = set_agm_stream_metadata_type(mixer, device, type, stype);
     if (ret)

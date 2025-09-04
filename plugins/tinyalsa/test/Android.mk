@@ -18,7 +18,7 @@ LOCAL_HEADER_LIBRARIES := \
 ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 
@@ -48,7 +48,7 @@ LOCAL_HEADER_LIBRARIES := \
 ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 LOCAL_SHARED_LIBRARIES += \
@@ -75,7 +75,7 @@ LOCAL_HEADER_LIBRARIES := \
 ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 LOCAL_SHARED_LIBRARIES += \
@@ -103,7 +103,7 @@ LOCAL_HEADER_LIBRARIES := \
 ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 LOCAL_SHARED_LIBRARIES += \
@@ -136,9 +136,8 @@ ifeq ($(TARGET_USES_QTI_TINYCOMPRESS),true)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa\
                           libqti-tinycompress
 else
-LOCAL_C_INCLUDES += $(TOP)/external/tinycompress/include
-LOCAL_SHARED_LIBRARIES += libtinyalsa\
-                          libtinycompress
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa\
+                          liboss_tinycompress
 endif
 
 LOCAL_SHARED_LIBRARIES += \
@@ -171,9 +170,8 @@ ifeq ($(TARGET_USES_QTI_TINYCOMPRESS),true)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa\
                           libqti-tinycompress
 else
-LOCAL_C_INCLUDES += $(TOP)/external/tinycompress/include
-LOCAL_SHARED_LIBRARIES += libtinyalsa\
-                          libtinycompress
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa\
+                          liboss_tinycompress
 endif
 
 LOCAL_SHARED_LIBRARIES += \
@@ -201,7 +199,7 @@ LOCAL_HEADER_LIBRARIES := \
 ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 LOCAL_SHARED_LIBRARIES += \

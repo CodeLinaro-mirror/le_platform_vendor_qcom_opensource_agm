@@ -199,6 +199,7 @@ struct device_obj {
 
     bool is_virtual_device;
     int num_virtual_child;
+    bool has_no_alsa_ops;
     struct device_obj *parent_dev;
     struct device_group_data *group_data;
 };

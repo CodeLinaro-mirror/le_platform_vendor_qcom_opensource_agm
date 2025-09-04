@@ -67,7 +67,7 @@
 #include <utils/Log.h>
 #include <agm/agm_api.h>
 #include "ipc_interface.h"
-#include "utils.h"
+#include <agm/utils.h>
 
 class AgmService : public BnAgmService
 {
@@ -77,77 +77,78 @@ class AgmService : public BnAgmService
           AGM_LOGV("AGMService constructor\n");
           agm_initialized = ((agm_init() == 0)?true:false);
         }
-        virtual int ipc_agm_init();
-        virtual int ipc_agm_audio_intf_set_metadata(uint32_t audio_intf,
+        int ipc_agm_init();
+        int ipc_agm_audio_intf_set_metadata(uint32_t audio_intf,
                                      uint32_t size, uint8_t *metadata);
-        virtual int ipc_agm_session_set_metadata(uint32_t session_id,
+        int ipc_agm_session_set_metadata(uint32_t session_id,
                                      uint32_t size, uint8_t *metadata);
-        virtual int ipc_agm_session_audio_inf_set_metadata(uint32_t session_id,
+        int ipc_agm_session_audio_inf_set_metadata(uint32_t session_id,
                                      uint32_t audio_intf, uint32_t size,
                                      uint8_t *metadata);
-        virtual int ipc_agm_session_close(uint64_t handle);
-        virtual int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
+        int ipc_agm_session_close(uint64_t handle);
+        int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
                                      struct agm_media_config *media_config);
-        virtual int ipc_agm_session_prepare(uint64_t handle);
-        virtual int ipc_agm_session_start(uint64_t handle);
-        virtual int ipc_agm_session_stop(uint64_t handle);
-        virtual int ipc_agm_session_pause(uint64_t handle);
-        virtual int ipc_agm_session_resume(uint64_t handle);
-        virtual int ipc_agm_session_open(uint32_t session_id,
+        int ipc_agm_session_prepare(uint64_t handle);
+        int ipc_agm_session_start(uint64_t handle);
+        int ipc_agm_session_stop(uint64_t handle);
+        int ipc_agm_session_pause(uint64_t handle);
+        int ipc_agm_session_resume(uint64_t handle);
+        int ipc_agm_session_open(uint32_t session_id,
                                          enum agm_session_mode sess_mode,
                                          uint64_t *handle);
-        virtual int ipc_agm_session_read(uint64_t handle, void *buff,
+        int ipc_agm_session_read(uint64_t handle, void *buff,
                                      size_t *count);
-        virtual int ipc_agm_session_write(uint64_t handle, void *buff,
+        int ipc_agm_session_write(uint64_t handle, void *buff,
                                      size_t *count);
-        virtual int ipc_agm_session_audio_inf_connect(uint32_t session_id,
+        int ipc_agm_session_audio_inf_connect(uint32_t session_id,
                                      uint32_t audio_intf, bool state);
-        virtual int ipc_agm_session_set_loopback(uint32_t capture_session_id,
+        int ipc_agm_session_set_loopback(uint32_t capture_session_id,
                                      uint32_t playback_session_id, bool state);
-        virtual size_t ipc_agm_get_hw_processed_buff_cnt(uint64_t handle,
+        size_t ipc_agm_get_hw_processed_buff_cnt(uint64_t handle,
                                      enum direction dir);
-        virtual int ipc_agm_get_aif_info_list(struct aif_info *aif_list,
+        int ipc_agm_get_aif_info_list(struct aif_info *aif_list,
                                      size_t *num_aif_info);
-        virtual int ipc_agm_session_aif_get_tag_module_info(uint32_t session_id,
+        int ipc_agm_session_aif_get_tag_module_info(uint32_t session_id,
                                      uint32_t aif_id, void *payload,
                                      size_t *size);
-        virtual int ipc_agm_get_params_from_acdb_tunnel(void *payload,
+        int ipc_agm_get_params_from_acdb_tunnel(void *payload,
                                      size_t *size);
-        virtual int ipc_agm_session_aif_set_params(uint32_t session_id,
+        int ipc_agm_session_aif_set_params(uint32_t session_id,
                                      uint32_t aif_id, void *payload,
                                      size_t size);
-        virtual int ipc_agm_aif_set_params(uint32_t aif_id,
+        int ipc_agm_aif_set_params(uint32_t aif_id,
                                     void* payload, size_t size);
-        virtual int ipc_agm_session_set_params(uint32_t session_id,
+        int ipc_agm_session_set_params(uint32_t session_id,
                                      void *payload, size_t size);
-        virtual int ipc_agm_set_params_with_tag(uint32_t session_id,
+        int ipc_agm_set_params_with_tag(uint32_t session_id,
                                      uint32_t aif_id,
                                      struct agm_tag_config *tag_config);
-        virtual int ipc_agm_session_register_for_events(uint32_t session_id,
+        int ipc_agm_session_register_for_events(uint32_t session_id,
                                      struct agm_event_reg_cfg *evt_reg_cfg);
-        virtual int ipc_agm_session_register_cb(uint32_t session_id,
+        int ipc_agm_session_register_cb(uint32_t session_id,
                                      agm_event_cb cb, enum event_type event,
                                      void *client_data) ;
-        virtual int ipc_agm_session_set_config(
+        int ipc_agm_session_set_config(
                                      uint64_t handle,
                                      struct agm_session_config *session_config,
                                      struct agm_media_config *media_config,
                                      struct agm_buffer_config *buffer_config);
-        virtual int ipc_agm_session_set_ec_ref(uint32_t capture_session_id,
+        int ipc_agm_session_set_ec_ref(uint32_t capture_session_id,
                                      uint32_t aif_id, bool state);
-        virtual int ipc_agm_session_aif_set_cal(
+        int ipc_agm_session_aif_set_cal(
                                      uint32_t session_id,
                                      uint32_t audio_intf,
                                      struct agm_cal_config *cal_config);
-        virtual int ipc_agm_session_eos(uint64_t handle);
-        virtual int ipc_agm_get_session_time(uint64_t handle, uint64_t *timestamp);
-        virtual int ipc_agm_session_get_params(uint32_t session_id,
+        int ipc_agm_session_eos(uint64_t handle);
+        int ipc_agm_get_session_time(uint64_t handle, uint64_t *timestamp);
+        int ipc_agm_session_get_params(uint32_t session_id,
                                       void *payload, size_t size);
-        virtual int ipc_agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp);
-        virtual int ipc_agm_set_gapless_session_metadata(uint64_t handle,
+        int ipc_agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp);
+        int ipc_agm_set_gapless_session_metadata(uint64_t handle,
                          enum agm_gapless_silence_type type, uint32_t silence);
-        virtual int ipc_agm_session_get_buf_info(uint32_t session_id,
+        int ipc_agm_session_get_buf_info(uint32_t session_id,
                            struct agm_buf_info *buf_info, uint32_t flag);
+
         ~AgmService()
         {
             AGM_LOGV("AGMService destructor");

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -18,6 +18,10 @@ extern "C" __attribute__((visibility("default"))) binder_status_t registerServic
     auto agmService = ::ndk::SharedRefBase::make<AgmServerWrapper>();
     ndk::SpAIBinder agmBinder = agmService->asBinder();
     const std::string interfaceName = std::string() + IAGM::descriptor + "/default";
+    if (!agmService->isInitialized()) {
+        ALOGE("failed to initialize AGM Service!");
+        return -EINVAL;
+    }
 
     if (!AServiceManager_isDeclared(interfaceName.c_str())) {
         ALOGW("%s interface %s is not declared in VINTF", __func__, interfaceName.c_str());

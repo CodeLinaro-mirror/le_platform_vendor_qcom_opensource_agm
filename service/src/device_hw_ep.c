@@ -131,7 +131,7 @@ static int populate_hw_ep_intf_idx(hw_ep_info_t *hw_ep_info, char *intf_idx)
     case MI2S:
     case TDM:
     case AUXPCM:
-        if (!strcmp(intf_idx, "PRIMARY"))
+        if (!strcmp(intf_idx, "PRIMARY") || !strcmp(intf_idx, "PRI"))
             cdc_dma_i2s_tdm_config->intf_idx = PCM_INTF_IDX_PRIMARY;
         else if (!strcmp(intf_idx, "SECONDARY"))
             cdc_dma_i2s_tdm_config->intf_idx = PCM_INTF_IDX_SECONDARY;

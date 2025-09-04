@@ -26,8 +26,8 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 #define LOG_TAG "AGM: API"
@@ -35,7 +35,9 @@
 #include <agm/device.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
+#ifndef AGM_MEMLOG_UNSUPPORTED
 #include <agm/agm_memlogger.h>
+#endif
 #include "ats.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -118,7 +120,9 @@ int agm_init()
     log_utils_init();
 #endif
 
-//    agm_memlog_init();
+#ifndef AGM_MEMLOG_UNSUPPORTED
+    agm_memlog_init();
+#endif
     pthread_attr_init (&tattr);
     pthread_attr_getschedparam (&tattr, &param);
     param.sched_priority = SCHED_FIFO;
@@ -152,7 +156,9 @@ int agm_deinit()
         ats_deinit();
 #endif
         session_obj_deinit();
-//        agm_memlog_deinit();
+#ifndef AGM_MEMLOG_UNSUPPORTED
+        agm_memlog_deinit();
+#endif
         agm_initialized = 0;
     }
 
@@ -185,8 +191,8 @@ int agm_aif_set_metadata(uint32_t aif_id, uint32_t size, uint8_t *metadata)
     int32_t ret = 0;
 
     ret = device_get_obj(aif_id, &obj);
-    if (ret) {
-        AGM_LOGE("Error:%d retrieving device obj with audio_intf id=%u\n",
+    if (ret || !obj) {
+        AGM_LOGE("Error:%d retrieving device obj with audio_intf id=%d\n",
                                          ret, aif_id);
         goto done;
     }
@@ -209,8 +215,8 @@ int agm_aif_set_media_config(uint32_t aif_id,
     int ret = 0;
 
     ret = device_get_obj(aif_id, &obj);
-    if (ret) {
-        AGM_LOGE("Error:%d, retrieving device obj with audio_intf id=%u\n",
+    if (ret || !obj) {
+        AGM_LOGE("Error:%d, retrieving device obj with audio_intf id=%d\n",
                                                         ret, aif_id);
         goto done;
     }
@@ -408,8 +414,8 @@ int agm_aif_set_params(uint32_t aif_id,
     int32_t ret = 0;
 
     ret = device_get_obj(aif_id, &obj);
-    if (ret) {
-        AGM_LOGE("Error:%d retrieving device obj with audio_intf id=%u\n",
+    if (ret || !obj) {
+        AGM_LOGE("Error:%d retrieving device obj with audio_intf id=%d\n",
                                          ret, aif_id);
         goto done;
     }

@@ -1,7 +1,7 @@
 #ifndef AGM_MEMLOGGER_H
 #define AGM_MEMLOGGER_H
 /*
-* Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+* Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 * SPDX-License-Identifier: BSD-3-Clause-Clear
 */
 
@@ -10,6 +10,7 @@
 #include "spf_reset_queue.h"
 #include "gsl_intf.h"
 
+#ifndef AGM_MEMLOG_UNSUPPORTED
 /// @brief Initializes all memlog queues tracking AGM memory states
 void agm_memlog_init();
 
@@ -35,4 +36,14 @@ void agm_memlog_spf_reset_enqueue(spf_reset_state qState);
 /// @return an error code representing status
 uint32_t agm_memlog_spf_reset_cb(enum gsl_global_event_ids event_id, void *event_payload, size_t event_payload_sz, void *client_data);
 
+#else
+
+static inline void agm_memlog_init() {}
+static inline void agm_memlog_deinit() {}
+static inline void agm_memlog_graph_enqueue(graph_queue_state qState, int qResult, void *qHandle) {}
+static inline void agm_memlog_spf_reset_enqueue(spf_reset_state qState) {}
+static inline uint32_t agm_memlog_spf_reset_cb(enum gsl_global_event_ids event_id, void *event_payload,
+        size_t event_payload_sz, void *client_data) {return 0;}
+
+#endif
 #endif

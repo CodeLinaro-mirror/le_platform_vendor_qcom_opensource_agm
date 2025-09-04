@@ -68,12 +68,19 @@
 #include <signal.h>
 #include <stdio.h>
 
+#ifdef ARE_ON_APPS
+#include <posal.h>
+#include <spf_main.h>
+#include <gpr_api.h>
+#endif
+
 #include "agm_server_wrapper_dbus.h"
 #include <utils.h>
 
 GMainLoop *mainloop = NULL;
 
 void signal_handler(int sig) {
+    int ret = 0;
     switch (sig) {
         case SIGINT:
         case SIGTERM:
@@ -82,6 +89,38 @@ void signal_handler(int sig) {
         case SIGKILL:
         default:
             AGM_LOGE("Terminating signal received\n");
+
+/*
+ * ToDo: To use ref count based approach for gpr when are_on_apps supports
+ * bootup laoding of dynamic modules.
+ *
+ * In current approach spf framework deinit calls are done before
+ * session_obj_deinit() as session_obj_deinit() calls gpr_deinit() function and
+ * framework services need to de-register from gpr as part of deinit call flow.
+ *
+ * In case when ARE on APPS support bootup loading for dynamic modules, spf
+ * framework deinit need to be called after session_obj_deinit() to handle AMDB
+ * commands to deregister dynamic modules. As gpr_deinit() is called as part of
+ * session_obj_deinit() call flow, need to use ref count based approach for gpr
+ * and the last deinit call to gpr should be after session object and spf
+ * framework are deinitialized.
+ */
+#ifdef ARE_ON_APPS
+            ret = spf_framework_pre_deinit();
+            if (0 != ret) {
+                AGM_LOGE("spf_framework_pre_deinit() failed with status %d", ret);
+                return;
+            }
+
+            ret = spf_framework_post_deinit();
+            if (0 != ret) {
+                AGM_LOGE("spf_framework_post_deinit() failed with status %d", ret);
+                return;
+            }
+
+            posal_deinit();
+#endif
+
             ipc_agm_deinit();
             g_main_loop_quit(mainloop);
             break;
@@ -92,6 +131,26 @@ int main() {
     int rc = 0;
     mainloop = g_main_loop_new(NULL, false);
 
+#ifdef ARE_ON_APPS
+    posal_init();
+    rc = gpr_init();
+    if (0 != rc) {
+        AGM_LOGE("gpr_init() failed with status %d", rc);
+        return rc;
+    }
+
+    rc = spf_framework_pre_init();
+    if (0 != rc) {
+        AGM_LOGE("spf_framework_pre_init() failed with status %d", rc);
+        return rc;
+    }
+
+    rc = spf_framework_post_init();
+    if (0 != rc) {
+        AGM_LOGE("spf_framework_post_init() failed with status %d", rc);
+        return rc;
+    }
+#endif
     rc = ipc_agm_init();
     if (rc != 0) {
         AGM_LOGE("AGM init failed\n");

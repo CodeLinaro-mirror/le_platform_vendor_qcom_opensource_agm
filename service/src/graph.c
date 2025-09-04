@@ -27,7 +27,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
 ** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+** Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -80,7 +80,9 @@
 #include <agm/graph_module.h>
 #include <agm/metadata.h>
 #include <agm/utils.h>
+#ifndef AGM_MEMLOG_UNSUPPORTED
 #include <agm/agm_memlogger.h>
+#endif
 
 #ifdef DYNAMIC_LOG_ENABLED
 #include <log_xml_parser.h>
@@ -340,6 +342,7 @@ int graph_init()
     /*Populate acdbfiles from the shared file path*/
     acdb_files.num_files = 0;
 
+#ifndef USE_DEFAULT_ACDB_PATH
     snd_card_found = get_file_path_extn(file_path_extn, file_path_extn_wo_variant);
     if (snd_card_found) {
         snprintf(acdb_path, ACDB_PATH_MAX_LENGTH, "%s/%s", ACDB_PATH, file_path_extn);
@@ -347,6 +350,9 @@ int graph_init()
         ret = -ENOENT;
         goto err;
     }
+#else
+    snprintf(acdb_path, ACDB_PATH_MAX_LENGTH, "%s", ACDB_PATH);
+#endif
     AGM_LOGI("acdb file path: %s\n", acdb_path);
 
     AGM_LOGV("going to load acdb file from path %s",acdb_path);
@@ -699,7 +705,9 @@ no_config:
     ret = gsl_open((struct gsl_key_vector *)&meta_data_kv->gkv,
                    (struct gsl_key_vector *)&meta_data_kv->ckv,
                    &graph_obj->graph_handle);
+#ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(GRAPH_OPEN, ret, graph_obj->graph_handle);
+#endif
     if (ret != 0) {
        ret = ar_err_get_lnx_err_code(ret);
        AGM_LOGE("Failed to open the graph with error %d\n", ret);
@@ -775,7 +783,9 @@ int graph_close(struct graph_obj *graph_obj)
         ret = ar_err_get_lnx_err_code(ret);
         AGM_LOGE("gsl close failed error %d\n", ret);
     }
+#ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(GRAPH_CLOSE, ret, graph_obj->graph_handle);
+#endif
     /*free the list of modules associated with this graph_object*/
     list_for_each_safe(node, temp_node, &graph_obj->tagged_mod_list) {
         list_remove(node);
@@ -916,7 +926,9 @@ int graph_start(struct graph_obj *graph_obj)
     graph_obj->state = STARTED;
 
 done:
+#ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(GRAPH_START, ret, graph_obj->graph_handle);
+#endif
     pthread_mutex_unlock(&graph_obj->lock);
     AGM_LOGD("exit, ret %d", ret);
     return ret;
@@ -980,7 +992,9 @@ int graph_stop(struct graph_obj *graph_obj,
     }
 
 done:
+#ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(GRAPH_STOP, ret, graph_obj->graph_handle);
+#endif
     pthread_mutex_unlock(&graph_obj->lock);
     AGM_LOGD("exit, ret %d", ret);
     return ret;
@@ -1040,7 +1054,9 @@ int graph_pause_resume(struct graph_obj *graph_obj, bool pause)
     }
 
 done:
+#ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(pause ? GRAPH_PAUSE : GRAPH_RESUME, ret, graph_obj->graph_handle);
+#endif
     return ret;
 }
 

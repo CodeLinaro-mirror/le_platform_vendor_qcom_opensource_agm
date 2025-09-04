@@ -18,6 +18,7 @@ LOCAL_CFLAGS        := -D_ANDROID_ -DAGM_DEBUG_METADATA -DAGM_USE_CUTILS
 LOCAL_CFLAGS        += -Wno-tautological-compare -Wno-macro-redefined -Wall
 LOCAL_CFLAGS        += -D_GNU_SOURCE -DACDB_PATH=\"/vendor/etc/acdbdata/\"
 LOCAL_CFLAGS        += -DACDB_DELTA_FILE_PATH="/data/vendor/audio/acdbdata/delta"
+LOCAL_CFLAGS        += -DAGM_MEMLOG_UNSUPPORTED
 
 LOCAL_C_INCLUDES    := $(LOCAL_PATH)/inc/public
 LOCAL_C_INCLUDES    += $(LOCAL_PATH)/inc/private
@@ -41,7 +42,14 @@ LOCAL_SRC_FILES  := \
     src/device_hw_ep.c \
     src/agm_memlogger.c
 
-LOCAL_HEADER_LIBRARIES += \
+# add for gcov dump
+ifeq ($(AUDIO_FEATURE_ENABLED_GCOV), true)
+LOCAL_CFLAGS += -DAUDIO_FEATURE_ENABLED_GCOV -g --coverage -fprofile-arcs -ftest-coverage
+LOCAL_CPPFLAGS += -g --coverage -fprofile-arcs -ftest-coverage
+LOCAL_LDFLAGS += -g --coverage -fprofile-arcs -ftest-coverage
+endif
+
+LOCAL_HEADER_LIBRARIES := \
     libspf-headers \
     libutils_headers \
     libacdb_headers \
@@ -53,7 +61,12 @@ LOCAL_SHARED_LIBRARIES := \
     libaudioroute \
     libats \
     libarmemlog \
-    libcutils
+    libcutils \
+    libsndcardparser
+
+ifeq ($(ENABLE_HYP), true)
+LOCAL_CFLAGS += -DUSE_DEFAULT_ACDB_PATH -DBYPASS_ALSA_HW -DCARD_STATE_UNSUPPORTED
+endif
 
 ifeq ($(ENABLE_HYP), true)
 LOCAL_SHARED_LIBRARIES += libar-gsl_fe
@@ -69,7 +82,7 @@ endif
 ifneq ($(filter R 11,$(PLATFORM_VERSION)),)
 LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
 else
-LOCAL_SHARED_LIBRARIES += libtinyalsa
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
 endif
 
 

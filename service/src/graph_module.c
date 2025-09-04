@@ -28,7 +28,7 @@
  *
  * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
  *
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -937,15 +937,22 @@ static int configure_tdm_ep(struct module_info *mod,
     ret = gsl_set_custom_config(graph_obj->graph_handle, payload, payload_sz);
     if (ret != 0) {
         if (ret == AR_EALREADY) {
+            void *payload_copy = calloc(1, sizeof(param_id_tdm_intf_cfg_t));
+            struct param_id_tdm_intf_cfg_t *tdm_config_copy = (struct  param_id_tdm_intf_cfg_t*) payload_copy;
+            if (!payload_copy) {
+                AGM_LOGE("Not enough memory for payload_copy");
+                ret = -ENOMEM;
+                goto free_kvp;
+            }
             AGM_LOGI("Getting AR_EALREADY, check if Custom_config is the same");
             memcpy(tdm_config_copy, tdm_config, sizeof(param_id_tdm_intf_cfg_t));
-            gsl_ret = gsl_get_custom_config(graph_obj->graph_handle, payload, payload_sz);
-            if (gsl_ret == 0) {
-                if (compare_tdm_custom_config(tdm_config_copy, tdm_config)) {
-                    ret = 0;
-                    AGM_LOGI("config is the same, bypass EALREADY");
-                    goto free_kvp;
-                }
+            int gsl_ret = gsl_get_custom_config(graph_obj->graph_handle, payload, payload_sz);
+            bool is_same = (0 == gsl_ret) && compare_tdm_custom_config(tdm_config_copy, tdm_config);
+            free(payload_copy);
+            if (is_same) {
+                ret = 0;
+                AGM_LOGI("config is the same, bypass EALREADY");
+                goto free_kvp;
             }
         }
         ret = ar_err_get_lnx_err_code(ret);
@@ -1163,7 +1170,6 @@ int configure_hw_ep_media_config(struct module_info *mod,
     struct device_obj *dev_obj = mod->dev_obj;
     struct apm_module_param_data_t* header;
     struct param_id_hw_ep_mf_t *hw_ep_media_conf;
-    struct param_id_hw_ep_mf_t *hw_ep_media_conf_copy;
     struct agm_media_config media_config = (dev_obj->group_data) ?
                           dev_obj->group_data->media_config.config :dev_obj->media_config;
 
@@ -1190,8 +1196,7 @@ int configure_hw_ep_media_config(struct module_info *mod,
     hw_ep_media_conf = (struct param_id_hw_ep_mf_t*)
                          (payload + sizeof(struct apm_module_param_data_t));
 
-    hw_ep_media_conf_copy = (struct param_id_hw_ep_mf_t*)
-        (payload + sizeof(struct apm_module_param_data_t));
+
 
     header->module_instance_id = mod->miid;
     header->param_id = PARAM_ID_HW_EP_MF_CFG;
@@ -1211,16 +1216,23 @@ int configure_hw_ep_media_config(struct module_info *mod,
     ret = gsl_set_custom_config(graph_obj->graph_handle, payload, payload_size);
     if (ret != 0) {
         if (ret == AR_EALREADY) {
+            void *payload_copy = calloc(1, sizeof(param_id_hw_ep_mf_t));
+            struct param_id_hw_ep_mf_t *hw_ep_media_conf_copy = (struct param_id_hw_ep_mf_t*) payload_copy;
+            if (!payload_copy) {
+                AGM_LOGE("No memory to allocate for payload_copy");
+                ret = -ENOMEM;
+                goto free_payload;
+            }
             AGM_LOGI("Getting AR_EALREADY, check if Custom_config is the same");
             memcpy(hw_ep_media_conf_copy, hw_ep_media_conf, sizeof(param_id_hw_ep_mf_t));
             AGM_LOGI("payload after set: %p", payload);
-            gsl_ret = gsl_get_custom_config(graph_obj->graph_handle, payload, payload_size);
-            if (gsl_ret == 0) {
-                if (compare_hw_ep_media_config(hw_ep_media_conf_copy, hw_ep_media_conf)) {
-                    ret = 0;
-                    AGM_LOGI("config is the same, bypass EALREADY");
-                    goto free_payload_copy;
-                }
+            int gsl_ret = gsl_get_custom_config(graph_obj->graph_handle, payload, payload_size);
+            bool is_same = (0 == gsl_ret) && compare_hw_ep_media_config(hw_ep_media_conf_copy, hw_ep_media_conf);
+            free(payload_copy);
+            if (is_same) {
+                ret = 0;
+                AGM_LOGI("config is the same, bypass EALREADY");
+                goto free_payload;
             }
         }
         ret = ar_err_get_lnx_err_code(ret);
@@ -1228,8 +1240,6 @@ int configure_hw_ep_media_config(struct module_info *mod,
                       mod->tag, ret);
     }
 
-free_payload_copy:
-    free(payload_copy);
 free_payload:
     free(payload);
 done:
@@ -2492,6 +2502,37 @@ done:
     return ret;
 }
 
+int configure_spr_session_time_reset_info(struct module_info* spr_mod,
+                                          struct graph_obj* graph_obj) {
+    size_t apm_size = sizeof(struct apm_module_param_data_t);
+    size_t param_payload_size = sizeof(struct param_id_spr_session_time_reset_info_t);
+    size_t payload_size = apm_size + param_payload_size;
+
+    ALIGN_PAYLOAD(payload_size, 8);
+    uint8_t bytes[payload_size];
+    memset(bytes, 0, payload_size);
+
+    struct apm_module_param_data_t* header;
+    header = (struct apm_module_param_data_t*)bytes;
+    header->module_instance_id = spr_mod->miid;
+    header->param_id = PARAM_ID_SPR_SESSION_TIME_RESET_INFO;
+    header->error_code = 0x0;
+    header->param_size = param_payload_size;
+
+    struct param_id_spr_session_time_reset_info_t* reset_info =
+            (struct param_id_spr_session_time_reset_info_t*)(bytes + apm_size);
+    reset_info->mode = SPR_SESSION_TIME_SKIP_RESET_GAPLESS_SWITCH;
+
+    int ret = gsl_set_custom_config(graph_obj->graph_handle, bytes, payload_size);
+    if (ret != 0) {
+        ret = ar_err_get_lnx_err_code(ret);
+        AGM_LOGE("failed for PARAM_ID_SPR_SESSION_TIME_RESET_INFO: %d", ret);
+        return ret;
+    }
+
+    AGM_LOGD("configured");
+    return ret;
+}
 
 int configure_spr(struct module_info *spr_mod,
                             struct graph_obj *graph_obj)
@@ -2540,6 +2581,11 @@ int configure_spr(struct module_info *spr_mod,
 done:
     if (payload)
         free(payload);
+
+    if (ret == 0 && graph_obj->state != STARTED) {
+        ret = configure_spr_session_time_reset_info(spr_mod, graph_obj);
+    }
+
     return ret;
 }
 
@@ -2681,11 +2727,13 @@ module_info_t stream_module_list[] = {
         .tag = TAG_PAUSE,
         .configure = NULL,
     },
+/*  TODO: Need to add this PARAM in SPR for Auto-target Graphs
+    until then commenting this out to avoid failures in grpah_prepare
     {
         .module = MODULE_STREAM_SPR,
         .tag = TAG_STREAM_SPR,
         .configure = configure_spr,
-    },
+    }, */
     {
         .module = MODULE_STREAM_GAPLESS,
         .tag = MODULE_GAPLESS,

@@ -84,6 +84,23 @@ struct snd_dev_def_card {
     struct listnode compr_devs_list;
 };
 
+struct snd_node_ops {
+    /** Function pointer to get card definition */
+    void* (*open_card)(unsigned int card);
+    /** Function pointer to release card definition */
+    void (*close_card)(void *card);
+    /** Get interger type properties from device definition */
+    int (*get_int)(void *node, const char *prop, int *val);
+    /** Get string type properties from device definition */
+    int (*get_str)(void *node, const char *prop, char **val);
+    /** Function pointer to get mixer definition */
+    void* (*get_mixer)(void *card);
+    /** Function pointer to get PCM definition */
+    void* (*get_pcm)(void *card, unsigned int id);
+    /** Function pointer to get COMPRESS definition */
+    void* (*get_compress)(void *card, unsigned int id);
+};
+
 static struct listnode snd_card_list;
 static bool snd_card_list_init = false;
 static pthread_rwlock_t snd_rwlock = PTHREAD_RWLOCK_INITIALIZER;
@@ -611,6 +628,21 @@ void *snd_card_def_get_node(void *card_node, unsigned int id, int type)
     return NULL;
 }
 
+void *snd_card_def_get_pcm(void *card_node, unsigned int id)
+{
+    return snd_card_def_get_node(card_node, id, SND_NODE_TYPE_PCM);
+}
+
+void *snd_card_def_get_compress(void *card_node, unsigned int id)
+{
+    return snd_card_def_get_node(card_node, id, SND_NODE_TYPE_COMPR);
+}
+
+void *snd_card_def_get_mixer(void *card_node)
+{
+    return snd_card_def_get_node(card_node, 1, SND_NODE_TYPE_MIXER);
+}
+
 int snd_card_def_get_num_node(void *card_node, int type)
 {
     struct snd_dev_def_card *card_def = (struct snd_dev_def_card *)card_node;
@@ -753,3 +785,13 @@ int snd_card_def_get_str(void *node, const char *prop, char **val)
     pthread_rwlock_unlock(&snd_rwlock);
     return ret;
 }
+
+struct snd_node_ops snd_card_ops = {
+    .open_card = snd_card_def_get_card,
+    .close_card = snd_card_def_put_card,
+    .get_int = snd_card_def_get_int,
+    .get_str = snd_card_def_get_str,
+    .get_pcm = snd_card_def_get_pcm,
+    .get_compress = snd_card_def_get_compress,
+    .get_mixer = snd_card_def_get_mixer,
+};

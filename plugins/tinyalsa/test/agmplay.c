@@ -374,7 +374,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                 /* Updating bitwitdh based on format to avoid mismatch between bitwidth
                  * and format, as device bw will be used to configure MFC.
                  */
-                dev_config[index].bits = get_pcm_bit_width(dev_config[index].format);
+                dev_config[index].bits = get_tinyalsa_pcm_bit_width(dev_config[index].format);
             }
         }
         printf("Backend %s rate ch bit fmt : %d, %d, %d %d\n", intf_name[index],
@@ -440,11 +440,16 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
         }
 
         /* Configure PCM Converter */
-        if (configure_pcm_converter(mixer, device, intf_name[index], STREAM_PCM_CONVERTER,
-                            STREAM_PCM, fmt.sample_rate, fmt.num_channels,
-                            fmt.bits_per_sample)) {
-            printf("Failed to configure pcm converter\n");
-            goto err_close_mixer;
+        ret = agm_mixer_get_miid(mixer, device, intf_name[index], STREAM_PCM, STREAM_PCM_CONVERTER, &miid);
+        if (ret) {
+            printf("PCM Converter not present for this graph\n");
+        } else {
+            if (configure_pcm_converter(mixer, device, intf_name[index], STREAM_PCM_CONVERTER,
+                                STREAM_PCM, fmt.sample_rate, fmt.num_channels,
+                                fmt.bits_per_sample)) {
+                printf("Failed to configure pcm converter\n");
+                goto err_close_mixer;
+            }
         }
 
         ret = agm_mixer_get_miid(mixer, device, intf_name[index], STREAM_PCM, PER_STREAM_PER_DEVICE_MFC, &miid);
@@ -466,6 +471,13 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
             if (set_agm_group_device_config(mixer, intf_name[index], &grp_config[index])) {
                 printf("Failed to set grp device config\n");
                 goto err_close_mixer;
+            }
+        } else if(strstr(intf_name[index], "DISPLAY_PORT-RX")) {
+            ret = agm_mixer_get_miid(mixer, device, intf_name[index], STREAM_PCM, DEVICE_HW_ENDPOINT_RX, &miid);
+            if (ret) {
+                printf("Get %s Device EP module failed\n", intf_name[index]);
+            } else {
+                ret = set_agm_dp_audio_config_metadata(intf_name[index], mixer, miid, config.channels);
             }
         }
     }

@@ -44,7 +44,6 @@
 #include <signal.h>
 #include "ipc_interface.h"
 #include "agm_death_notifier.h"
-#include "utils.h"
 
 #ifdef DYNAMIC_LOG_ENABLED
 #include <log_xml_parser.h>

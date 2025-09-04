@@ -34,7 +34,7 @@
 #include <agm/agm_api.h>
 #include <agm/agm_list.h>
 #include <snd-card-def.h>
-#include "utils.h"
+#include <agm/utils.h>
 
 #define ARRAY_SIZE(a)   (sizeof(a)/sizeof(a[0]))
 #define MIXER_NAME_LEN  128
@@ -720,7 +720,7 @@ static int amp_form_mixer_controls(struct agmctl_priv *agmctl, int *ctl_idx)
 {
     void **pcm_node_list = NULL;
     int num_pcms = 0, num_compr = 0;
-    int total_pcms, total_tx = 0, rx_idx = 0;
+    int total_pcms, num_fe = 0, total_tx = 0, rx_idx = 0;
     int ret, val = 0, i;
     int ctl_per_pcm;
 
@@ -741,20 +741,10 @@ static int amp_form_mixer_controls(struct agmctl_priv *agmctl, int *ctl_idx)
     num_compr = (num_compr < 0) ? 0 : num_compr;
 
     total_pcms = num_pcms + num_compr;
-    ctl_per_pcm = (int)ARRAY_SIZE(agm_fe_ctl_name_extn);
-    agmctl->total_ctl_cnt = total_pcms * ctl_per_pcm;
-
     pcm_node_list = calloc(total_pcms, sizeof(*pcm_node_list));
     if (!pcm_node_list) {
         AGM_LOGE("%s: alloc for pcm_node_list failed\n", __func__);
         return -ENOMEM;
-    }
-
-    agmctl->pcm_count = total_pcms;
-    agmctl->pcm_mtd_ctl = calloc(total_pcms, sizeof(int));
-    if (!agmctl->pcm_mtd_ctl) {
-        ret = -ENOMEM;
-        goto done;
     }
 
     agmctl->pcm_idx = calloc(total_pcms, sizeof(int));
@@ -789,7 +779,14 @@ static int amp_form_mixer_controls(struct agmctl_priv *agmctl, int *ctl_idx)
     /* count TX and RX PCMs + Comprs*/
     for (i = 0; i < total_pcms; i++) {
         void *pcm_node = pcm_node_list[i];
+        int is_backend = 0;
 
+        /* Skip backend PCM nodes */
+        snd_card_def_get_int(pcm_node, "backend", &is_backend);
+        if (is_backend)
+            continue;
+
+        num_fe++;
         snd_card_def_get_int(pcm_node, "id", &agmctl->pcm_idx[i]);
 
         val = 0;
@@ -801,6 +798,16 @@ static int amp_form_mixer_controls(struct agmctl_priv *agmctl, int *ctl_idx)
         snd_card_def_get_int(pcm_node, "capture", &val);
         if (val == 1)
             total_tx++;
+    }
+
+    agmctl->pcm_count = num_fe;
+    ctl_per_pcm = (int)ARRAY_SIZE(agm_fe_ctl_name_extn);
+    agmctl->total_ctl_cnt = num_fe * ctl_per_pcm;
+
+    agmctl->pcm_mtd_ctl = calloc(num_fe, sizeof(int));
+    if (!agmctl->pcm_mtd_ctl) {
+        ret = -ENOMEM;
+        goto done;
     }
 
     ctl_per_pcm = (int)ARRAY_SIZE(agm_tx_ctl_name_extn);
@@ -828,6 +835,12 @@ static int amp_form_mixer_controls(struct agmctl_priv *agmctl, int *ctl_idx)
 
     for (i = 0; i < total_pcms; i++) {
         void *pcm_node = pcm_node_list[i];
+        int is_backend = 0;
+
+        /* Skip backend PCM nodes */
+        snd_card_def_get_int(pcm_node, "backend", &is_backend);
+        if (is_backend)
+            continue;
 
         agmctl_form_common_fe_controls(agmctl, pcm_node, ctl_idx);
 

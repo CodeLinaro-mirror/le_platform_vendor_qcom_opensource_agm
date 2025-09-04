@@ -6,6 +6,7 @@
 #include <agm/agm_memlogger.h>
 #include <agm/utils.h>
 
+#ifndef AGM_MEMLOG_UNSUPPORTED
 void agm_memlog_init()
 {
     int ret = 0;
@@ -77,3 +78,4 @@ uint32_t agm_memlog_spf_reset_cb(enum gsl_global_event_ids event_id, void *event
     }
     return 0;
 }
+#endif

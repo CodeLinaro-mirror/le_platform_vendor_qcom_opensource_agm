@@ -43,7 +43,7 @@
 #include <memory.h>
 #include <pthread.h>
 #include "agm_callback.h"
-#include "utils.h"
+#include <agm/utils.h>
 
 #ifndef MIN
 #define MIN(a,b) (((a)<(b))?(a):(b))

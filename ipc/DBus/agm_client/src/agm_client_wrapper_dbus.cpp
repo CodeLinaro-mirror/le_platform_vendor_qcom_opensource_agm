@@ -64,6 +64,8 @@
 
 #define LOG_TAG "agm_client_wrapper"
 
+#include <string.h>
+#include <stdio.h>
 #include <errno.h>
 #include <agm/agm_api.h>
 #include <gio/gio.h>
@@ -2135,6 +2137,37 @@ exit:
     if (ses_data != NULL)
         g_free(ses_data);
     return rc;
+}
+
+// Stub Implementation.
+int agm_get_params_from_acdb_tunnel(void *payload, size_t *size){
+    return 0;
+}
+
+int agm_aif_group_set_media_config(uint32_t aif_group_id,
+                          struct agm_group_media_config *media_config){
+    return 0;
+}
+
+int agm_set_params_with_tag_to_acdb(uint32_t session_id, uint32_t aif_id,
+                                void *payload, size_t size){
+    return 0;
+}
+
+int agm_session_write_datapath_params(uint32_t session_id, struct agm_buff *buff){
+    return 0;
+}
+
+int agm_sessionid_flush(uint32_t session_id){
+    return 0;
+}
+
+int agm_set_params_to_acdb_tunnel(void *payload, size_t size){
+    return 0;
+}
+
+int agm_get_group_aif_info_list(struct aif_info *aif_list, size_t *num_groups){
+    return 0;
 }
 
 int agm_init() {

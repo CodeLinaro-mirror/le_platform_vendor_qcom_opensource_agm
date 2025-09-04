@@ -86,7 +86,7 @@
 #include <agm/agm_api.h>
 #include "agm_server_wrapper.h"
 #include "agm_callback.h"
-#include "utils.h"
+#include <agm/utils.h>
 
 #ifndef MIN
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -137,6 +137,7 @@ enum {
     GET_AIF_LIST,
     REG_EVENT,
     REG_CB,
+    UNREG_CB,
     GET_TAG_MODULE_INFO,
     SESSION_AIF_SET_PARAMS,
     SESSION_SET_PARAMS,
@@ -535,7 +536,11 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
           android::ProcessState::self()->startThreadPool();
           sp<ICallback> clbk = interface_cast<ICallback>(binder);
           data.writeStrongBinder(IInterface::asBinder(clbk));
-          remote()->transact(REG_CB, data, &reply);
+          if (cb != NULL) {
+              remote()->transact(REG_CB, data, &reply);
+          } else {
+              remote()->transact(UNREG_CB, data, &reply);
+          }
           return reply.readInt32();
      }
 
@@ -546,9 +551,18 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
          int count = *size;
 
          data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
-         if (payload != NULL && count != 0) {
+         if (payload == NULL) {
+             data.writeInt64((long)payload);
+             data.writeUint32(count);
+             data.writeUint32(session_id);
+             data.writeUint32(aif_id);
+             remote()->transact(GET_TAG_MODULE_INFO, data, &reply);
+             count = (size_t) reply.readUint32();
+             *size = count;
+             return  reply.readInt32();
+         } else if (payload != NULL && count != 0) {
              android::Parcel::ReadableBlob tag_info_blob;
-
+             data.writeInt64((long)payload);
              data.writeUint32(count);
              data.writeUint32(session_id);
              data.writeUint32(aif_id);
@@ -1192,27 +1206,31 @@ android::status_t BnAgmService::onTransact(uint32_t code,
         clbk_data_obj->client_data = (void *)data.readInt64();
         sp<IBinder> binder = data.readStrongBinder();
         clbk_data_obj->cb_binder = interface_cast<ICallback>(binder);
-        if (clbk_data_obj->cb_func != NULL) {
-            list_add_tail(&clbk_data_list, &clbk_data_obj->list);
-            rc = ipc_agm_session_register_cb(clbk_data_obj->session_id,
-                            &ipc_cb, evnt, clbk_data_obj->client_data);
-        } else {
-            clbk_data *clbk_data_obj_tmp = NULL;
-            struct listnode *node = NULL, *next = NULL;
-            list_for_each_safe(node, next, &clbk_data_list) {
-                clbk_data_obj_tmp = node_to_item(node, clbk_data, list);
-                if ((clbk_data_obj_tmp->session_id == clbk_data_obj->session_id) &&
-                    (clbk_data_obj_tmp->client_data == clbk_data_obj->client_data)) {
-                    list_remove(&clbk_data_obj_tmp->list);
-                    free(clbk_data_obj_tmp);
-                }
-            }
-            rc = ipc_agm_session_register_cb(clbk_data_obj->session_id,
-                            NULL, evnt, clbk_data_obj->client_data);
-            free(clbk_data_obj);
+        list_add_tail(&clbk_data_list, &clbk_data_obj->list);
+        rc = ipc_agm_session_register_cb(clbk_data_obj->session_id,
+                        &ipc_cb, evnt, clbk_data_obj->client_data);
+        pthread_mutex_unlock(&clbk_data_list_lock);
+        reply->writeInt32(rc);
+        break ; }
+
+    case UNREG_CB: {
+        enum event_type evnt;
+        clbk_data *clbk_data_obj = NULL;
+
+        clbk_data_obj = (clbk_data *)calloc(1, sizeof(clbk_data));
+        if (clbk_data_obj == NULL) {
+            AGM_LOGE("calloc failed\n");
+            return -ENOMEM;
         }
 
-        pthread_mutex_unlock(&clbk_data_list_lock);
+        clbk_data_obj->session_id = data.readUint32();
+        data.read(&clbk_data_obj->cb_func, sizeof(agm_event_cb));
+        evnt = (event_type) data.readUint32();
+        clbk_data_obj->client_data = (void *)data.readInt64();
+
+        rc = ipc_agm_session_register_cb(clbk_data_obj->session_id,
+                        NULL, evnt, clbk_data_obj->client_data);
+        free(clbk_data_obj);
         reply->writeInt32(rc);
         break ; }
 
@@ -1221,10 +1239,16 @@ android::status_t BnAgmService::onTransact(uint32_t code,
         size_t count = 0;
         void *bn_payload = NULL;
 
+        bn_payload = (void*)data.readInt64();
         count = (size_t) data.readUint32();
         pcm_idx = data.readUint32();
         be_idx = data.readUint32();
-        if (count != 0){
+        if (bn_payload == NULL) {
+            rc = ipc_agm_session_aif_get_tag_module_info(pcm_idx, be_idx, NULL,
+                            &count);
+            reply->writeInt32(count);
+            reply->writeInt32(rc);
+        } else if (count != 0) {
             bn_payload = calloc(count, sizeof(uint8_t));
             if (bn_payload == NULL) {
                 AGM_LOGE("calloc failed\n");
