@@ -58,6 +58,11 @@
 #else
 #include "ats.h"
 #endif
+#ifdef ARE_ON_APPS
+#include "gpr_api.h"
+#include "posal.h"
+#include "spf_main.h"
+#endif
 
 #define RETRY_INTERVAL_US 500 * 1000
 static bool agm_initialized = 0;
@@ -115,6 +120,27 @@ int agm_init()
     pthread_attr_t tattr;
     struct sched_param param;
 
+#ifdef ARE_ON_APPS
+    posal_init();
+    ret = gpr_init();
+    if (ret) {
+        AGM_LOGE("gpr_init failed, ret %d", ret);
+        goto exit;
+    }
+
+    ret = spf_framework_pre_init();
+    if (0 != ret) {
+        AGM_LOGE("spf_framework_pre_init() failed with status %d", ret);
+        return ret;
+    }
+    ret = spf_framework_post_init();
+    if (0 != ret) {
+        AGM_LOGE("spf_framework_post_init() failed with status %d", ret);
+        return ret;
+    }
+
+#endif
+
 #ifdef DYNAMIC_LOG_ENABLED
     register_for_dynamic_logging("agm");
     log_utils_init();
@@ -147,6 +173,7 @@ exit:
 
 int agm_deinit()
 {
+    int ret = 0;
     //close all sessions first
     if (agm_initialized) {
         AGM_LOGD("Deinitializing ATS...");
@@ -155,6 +182,36 @@ int agm_deinit()
 #else
         ats_deinit();
 #endif
+/*
+ * ToDo: To use ref count based approach for gpr when are_on_apps supports
+ * bootup loading of dynamic modules.
+ *
+ * In current approach spf framework deinit calls are done before
+ * session_obj_deinit() as session_obj_deinit() calls gpr_deinit() function and
+ * framework services need to de-register from gpr as part of deinit call flow.
+ *
+ * In case when ARE on APPS support bootup loading for dynamic modules, spf
+ * framework deinit need to be called after session_obj_deinit() to handle AMDB
+ * commands to deregister dynamic modules. As gpr_deinit() is called as part of
+ * session_obj_deinit() call flow, need to use ref count based approach for gpr
+ * and the last deinit call to gpr should be after session object and spf
+ * framework are deinitialized.
+ */
+#ifdef ARE_ON_APPS
+        ret = spf_framework_pre_deinit();
+        if (ret) {
+            AGM_LOGE("spf_framework_pre_deinit() failed with status %d", ret);
+            return ret;
+        }
+        ret = spf_framework_post_deinit();
+        if (ret) {
+            AGM_LOGE("spf_framework_post_deinit() failed with status %d", ret);
+            return ret;
+        }
+
+        posal_deinit();
+#endif
+
         session_obj_deinit();
 #ifndef AGM_MEMLOG_UNSUPPORTED
         agm_memlog_deinit();
@@ -162,7 +219,7 @@ int agm_deinit()
         agm_initialized = 0;
     }
 
-    return 0;
+    return ret;
 }
 
 int agm_get_aif_info_list(struct aif_info *aif_list, size_t *num_aif_info)

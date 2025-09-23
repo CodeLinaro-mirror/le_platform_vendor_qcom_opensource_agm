@@ -94,5 +94,17 @@ LOCAL_SHARED_LIBRARIES += libexpat
 LOCAL_HEADER_LIBRARIES += libaudiologutils_headers
 endif
 
-include $(BUILD_SHARED_LIBRARY)
+ifeq ($(AUDIO_FEATURE_ARE_ON_APPS), true)
+$(info compiling ARE on ARM changes)
+LOCAL_CFLAGS += -DARE_ON_APPS
+LOCAL_SHARED_LIBRARIES += \
+    libspf_utils \
+    libar-gpr
 
+LOCAL_HEADER_LIBRARIES +=  \
+    libposal_headers \
+    libspf_api \
+    libspf_utils_headers
+endif
+
+include $(BUILD_SHARED_LIBRARY)
