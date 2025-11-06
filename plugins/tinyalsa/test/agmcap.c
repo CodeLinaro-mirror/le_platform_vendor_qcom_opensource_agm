@@ -73,7 +73,7 @@ static unsigned int capture_sample(FILE *file, unsigned int card, unsigned int d
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
                             unsigned int device_kv, unsigned int instance_kv,
-                            unsigned int devicepp_kv, int vmid_kv, unsigned int offload_proc_kv);
+                            unsigned int devicepp_kv, unsigned int vmid_kv, unsigned int offload_proc_kv);
 
 static void sigint_handler(int sig)
 {
@@ -90,7 +90,8 @@ static void usage(void)
            " [-skv stream_kv]\n"
            " [-is_24_LE] : [0-1] Only to be used if user wants to record 32 bps clip\n"
            " [-usb_d usb device]\n"
-           " [-vmid_kv 0 PVM, 1 LA_GVM1, 2 LA_GVM2, 3 LA_GVM3]\n"
+           " [-vmid_kv] Uses the KV value from acdb. Assign 0 or leave blank for no vmid_kv,\n"
+           " PVM - 0xDD000001, LA_GVM1 - 0xDD000002, LA_GVM2 - 0xDD000003, LA_GVM3 - 0xDD000004.\n"
            " 0: If bps is 32, and format should be S32_LE\n"
            " 1: If bps is 24, and format should be S24_LE\n");
 }
@@ -118,8 +119,8 @@ int main(int argc, char **argv)
     unsigned int stream_kv = 0;
     unsigned int instance_kv = 0;
     bool is_24_LE = false;
-    int vmid_kv = -1;
     unsigned int offload_proc_kv = 0;
+    unsigned int vmid_kv = 0;
 
     if (argc < 2) {
         usage();
@@ -195,11 +196,11 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 usb_device = atoi(*argv);
-        } else if (strcmp(*argv, "-vmid") == 0) {
+        } else if (strcmp(*argv, "-vmid_kv") == 0) {
             argv++;
             if (*argv)
-                vmid_kv = atoi(*argv);
-        } else if (strcmp(*argv, "-offload") == 0) {
+                vmid_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-offload_proc_kv") == 0) {
             argv++;
             if (*argv)
                 offload_proc_kv = convert_char_to_hex(*argv);
@@ -291,7 +292,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
                             unsigned int device_kv, unsigned int instance_kv, unsigned int devicepp_kv,
-                            int vmid_kv, unsigned int offload_proc_kv)
+                            unsigned int vmid_kv, unsigned int offload_proc_kv)
 {
     struct pcm_config config;
     struct pcm *pcm;

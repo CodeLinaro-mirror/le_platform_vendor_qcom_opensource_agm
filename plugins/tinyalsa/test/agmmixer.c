@@ -1553,7 +1553,7 @@ int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, in
 
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
                                     enum stream_type stype, unsigned int instance_kv,
-                                    int vmid_kv, uint32_t offload_proc_kv)
+                                    unsigned int vmid_kv, uint32_t offload_proc_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1574,7 +1574,7 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
     if (instance_kv != 0)
         num_gkv += 1;
 
-    if (vmid_kv >= 0)
+    if (vmid_kv != 0)
         num_gkv += 1;
 
     if (offload_proc_kv != 0)
@@ -1611,7 +1611,7 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
         index++;
     }
 
-    if (vmid_kv >= 0) {
+    if (vmid_kv != 0) {
         gkv[index].key = VMID;
         gkv[index].value = vmid_kv;
         index++;
@@ -1853,7 +1853,7 @@ int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val,
 }
 
 int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
-                            enum stream_type stype, unsigned int instance_kv, int vmid_kv, uint32_t offload_proc_kv)
+                            enum stream_type stype, unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1877,7 +1877,7 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     if (val == PCM_LL_PLAYBACK || val == COMPRESSED_OFFLOAD_PLAYBACK || instance_kv != 0)
        num_gkv += 1;
 
-    if (vmid_kv >= 0)
+    if (vmid_kv != 0)
        num_gkv += 1;
 
     if (offload_proc_kv != 0)
@@ -1938,7 +1938,7 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
         index++;
     }
 
-    if (vmid_kv >= 0) {
+    if (vmid_kv != 0) {
         gkv[index].key = VMID;
         gkv[index].value = vmid_kv;
         index++;
