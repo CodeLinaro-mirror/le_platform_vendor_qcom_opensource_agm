@@ -49,6 +49,7 @@
 #include <log_utils.h>
 #endif
 
+#define MAX_FRAME_SIZE (UINT32_MAX / 8)
 #define MONO 1
 #define GET_BITS_PER_SAMPLE(format, bit_width) \
                            (format == AGM_FORMAT_PCM_S24_LE? 32 : bit_width)
@@ -1749,7 +1750,15 @@ int configure_pcm_encoder_params(struct module_info *mod,
         bits = get_pcm_bit_width(sess_obj->in_media_config.format);
         bits = GET_BITS_PER_SAMPLE(sess_obj->in_media_config.format, bits);
         channels = (channels == 0) ? MONO : channels;
-        frame_size = (sess_obj->in_buffer_config.size * 8) /
+        if (((uint32_t)sess_obj->in_buffer_config.size) > MAX_FRAME_SIZE) {
+            AGM_LOGE("Buffer size too large, potential overflow");
+            return -EINVAL;
+        }
+        if (channels == 0 || bits == 0) {
+            AGM_LOGE("Invalid channels (%d) or bits (%d) for frame size calculation", channels, bits);
+            return -EINVAL;
+        }
+        frame_size = ((uint32_t)(sess_obj->in_buffer_config.size) * 8) /
                         (channels * bits);
 
         //determines the maximum possible value of m_max
