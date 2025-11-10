@@ -2170,6 +2170,14 @@ int agm_get_group_aif_info_list(struct aif_info *aif_list, size_t *num_groups){
     return 0;
 }
 
+int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info){
+    return -EINVAL;
+}
+
+int agm_shmem_buf_free(uint32_t spf_mem_handle){
+    return -EINVAL;
+}
+
 int agm_init() {
     GError *error = NULL;
     int rc = 0;

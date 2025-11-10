@@ -76,6 +76,7 @@
 
 #include "agm_server_wrapper_dbus.h"
 #include <utils.h>
+#include <stdbool.h>
 
 GMainLoop *mainloop = NULL;
 
