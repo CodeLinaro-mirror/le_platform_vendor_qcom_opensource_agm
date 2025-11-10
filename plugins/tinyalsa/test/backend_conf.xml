@@ -143,5 +143,7 @@
     <device name="AUXPCM-LPAIF_AXI-TX-PRIMARY" rate="48000" ch="2" bits="16" />
     <device name="MI2S-LPAIF_AXI-RX-PRIMARY" rate="48000" ch="2" bits="16" />
     <device name="AUXPCM-LPAIF_AXI-RX-PRIMARY" rate="48000" ch="2" bits="16" />
+    <device name="PCM_RT_PROXY-RX-2" rate="48000" ch="2" bits="16" />
+    <device name="PCM_RT_PROXY-TX-2" rate="48000" ch="2" bits="16" />
 </config>
 
