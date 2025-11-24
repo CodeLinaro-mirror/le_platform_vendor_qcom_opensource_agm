@@ -28,6 +28,10 @@ libagm_la_SOURCES = $(agm_sources)
 libagm_la_LIBADD = -ltinyalsa -lar-osal -lar-gsl -lar-ats -lsndcardparser
 libagm_la_LDFLAGS = -L$(top_builddir)/snd_parser/.libs
 
+if USE_DBUS
+libagm_la_LIBADD += -ldbus-1
+endif
+
 libagm_la_CFLAGS = $(AM_CFLAGS) -DACDB_PATH=\"/etc/acdbdata/\" -DACDB_DELTA_FILE_PATH="/etc/acdbdata/delta"
 libagm_la_CFLAGS += -DCARD_STATE_UNSUPPORTED
 
@@ -39,6 +43,10 @@ if USE_SYSLOG
 libagm_la_CFLAGS += -DAGM_USE_SYSLOG
 endif
 libagm_la_CFLAGS += -DAGM_MEMLOG_UNSUPPORTED
+
+if AGM_LOG_DEBUG_ENABLE
+libagm_la_CFLAGS += -DAGM_LOG_DEBUG_ENABLE
+endif
 
 if USE_GLIB
 libagm_la_LIBADD += -lglib-2.0

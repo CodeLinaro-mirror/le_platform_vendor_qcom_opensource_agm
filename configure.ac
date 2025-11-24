@@ -16,6 +16,12 @@ AC_PROG_LIBTOOL
 AM_PROG_AR
 AC_PROG_CXX
 
+AC_ARG_WITH([dbus],
+    AS_HELP_STRING([use dbus (default is no)]),
+    [with_dbus=$withval],
+    [with_dbus=no])
+AM_CONDITIONAL([USE_DBUS], [test "x${with_dbus}" = "xyes"])
+
 AC_ARG_WITH([syslog],
     AS_HELP_STRING([use syslog (default is no)]),
     [with_syslog=$withval],
@@ -35,6 +41,18 @@ else
     SND_PARSER_LIBDIR="${libdir}/"
 fi
 AC_SUBST([SND_PARSER_LIBDIR])
+
+AC_ARG_WITH([no_tinycompress],
+    AS_HELP_STRING([use no_tinycompress (default is no)]),
+    [with_no_tinycompress=$withval],
+    [with_no_tinycompress=no])
+AM_CONDITIONAL([NO_TINYCOMPRESS], [test "x${with_no_tinycompress}" = "xyes"])
+
+AC_ARG_WITH([agm_log_debug_enable],
+    AS_HELP_STRING([use agm_log_debug_enable (default is no)]),
+    [with_agm_log_debug_enable=$withval],
+    [with_agm_log_debug_enable=no])
+AM_CONDITIONAL([AGM_LOG_DEBUG_ENABLE], [test "x${with_agm_log_debug_enable}" = "xyes"])
 
 AC_ARG_WITH([are_on_apps],
     AS_HELP_STRING([--with-are-on-apps],[Enable ARE (SPF) on APPS support (default is no)]),

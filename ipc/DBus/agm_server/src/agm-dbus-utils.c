@@ -67,9 +67,11 @@
 #include <stdio.h>
 #include <errno.h>
 #include <malloc.h>
+#include <stdbool.h>
 
 #include "agm-dbus-utils.h"
-#include "utils.h"
+#include "agm/utils.h"
+
 
 #define DISPATCH_TIMEOUT  0
 

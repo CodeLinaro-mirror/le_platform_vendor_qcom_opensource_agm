@@ -30,6 +30,9 @@ libagm_pcm_plugin_la_LDFLAGS += -L$(top_builddir)/ipc/DBus/agm_client/.libs
 libagm_pcm_plugin_la_LIBADD += -lagmclient
 endif
 
+if NO_TINYCOMPRESS
+AM_CFLAGS += -DNO_TINYCOMPRESS
+else
 lib_LTLIBRARIES      += libtinycompress_module_agm.la
 libtinycompress_module_agm_la_SOURCES = src/agm_compress_plugin.c
 libtinycompress_module_agm_la_CFLAGS  = $(AM_CFLAGS)
@@ -43,6 +46,8 @@ else
 libtinycompress_module_agm_la_LDFLAGS += -L$(top_builddir)/ipc/DBus/agm_client/.libs
 libtinycompress_module_agm_la_LIBADD += -lagmclient
 endif
+endif
+
 
 lib_LTLIBRARIES      += libagm_mixer_plugin.la
 libagm_mixer_plugin_la_SOURCES = src/agm_mixer_plugin.c
