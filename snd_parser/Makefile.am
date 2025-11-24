@@ -15,6 +15,7 @@ AM_CFLAGS += -DCARD_DEF_FILE=\"/etc/card-defs.xml\"
 AM_CFLAGS += -Wl,-z,defs
 
 lib_LTLIBRARIES      = libsndcardparser.la
+libdir = @SND_PARSER_LIBDIR@
 libsndcardparser_la_SOURCES   = src/snd-card-parser.c
 libsndcardparser_la_LIBADD = -lexpat -lpthread
 libsndcardparser_la_LDFLAGS   = -avoid-version -shared

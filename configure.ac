@@ -22,6 +22,20 @@ AC_ARG_WITH([syslog],
     [with_syslog=no])
 AM_CONDITIONAL([USE_SYSLOG], [test "x${with_syslog}" = "xyes"])
 
+AC_ARG_WITH([automotive],
+    AS_HELP_STRING([use automotive (default is no)]),
+    [with_automotive=$withval],
+    [with_automotive=no])
+AM_CONDITIONAL([AUTOMOTIVE], [test "x${with_automotive}" = "xyes"])
+
+# Define custom libdir for snd_parser when automotive is enabled
+if test "x${with_automotive}" = "xyes"; then
+    SND_PARSER_LIBDIR="${prefix}/lib/ar"
+else
+    SND_PARSER_LIBDIR="${libdir}/"
+fi
+AC_SUBST([SND_PARSER_LIBDIR])
+
 AC_ARG_WITH([are_on_apps],
     AS_HELP_STRING([--with-are-on-apps],[Enable ARE (SPF) on APPS support (default is no)]),
     [with_are_on_apps=$withval],
