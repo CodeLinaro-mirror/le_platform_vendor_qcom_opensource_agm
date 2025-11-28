@@ -62,6 +62,8 @@
     <device name="MI2S-LPAIF_VA-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_WSA-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="MI2S-LPAIF_WSA-TX-PRIMARY" rate="48000" ch="1" bits="16" />
+    <device name="MI2S-LPAIF_WSA2-TX-PRIMARY" rate="8000" ch="1" bits="16" />
+    <device name="MI2S-LPAIF_WSA2-RX-PRIMARY" rate="8000" ch="1" bits="16" />
     <device name="TDM-LPAIF-RX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF-TX-PRIMARY" rate="48000" ch="1" bits="16" />
     <device name="TDM-LPAIF_AUD-RX-PRIMARY" rate="48000" ch="1" bits="16" />
