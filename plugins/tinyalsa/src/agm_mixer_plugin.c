@@ -34,16 +34,20 @@
 /* agm_mixer.c all names (variable/functions) should have
    amp_ (Agm Mixer Plugin) */
 #define LOG_TAG "PLUGIN: mixer"
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#ifdef __QNX__
+#include <pthread.h>
 #include <sys/ioctl.h>
+#else
+#include <linux/ioctl.h>
+#endif
 #include <sys/time.h>
 #include <limits.h>
-#include <linux/ioctl.h>
+
 
 #include <sound/asound.h>
 

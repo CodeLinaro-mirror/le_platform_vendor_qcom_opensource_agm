@@ -29,6 +29,9 @@
 
 #ifndef __SND_CARD_DEF_H__
 #define __SND_CARD_DEF_H__
+#ifdef __QNX__
+#include <limits.h>
+#endif
 
 enum snd_node_type {
     SND_NODE_TYPE_MIN = 0,

@@ -603,7 +603,7 @@ int test_stream_pause_resume(void) {
 	if (ret) {
 		goto fail;
 	}
-	
+
 	ret = agm_session_pause(sess_handle_rx1);
 	if (ret == 0) {
 		goto fail;
@@ -1499,7 +1499,7 @@ int main() {
 		printf("************* End TestCase:%d*************\n", i+1);
 		printf("\n\n");
 	}
-	
+
 	printf("\n\n");
 	printf("*************TEST REPORT*************\n");
 	printf("RAN:           %d/%d\n", i, testcount);

@@ -869,6 +869,17 @@ int device_get_channel_map(struct device_obj *dev_obj, uint32_t **chmap)
     void *payload = NULL;
     char *dev_name = NULL;
 
+    /*
+        * Current limitation: QNX platform lacks TinyALSA library support, so related
+        * APIs are temporarily disabled. The device_get_channel_map() function is not
+        * used because currently no support for Codec and Slimbus EP
+        *
+        * This should be addressed when TinyALSA becomes available on QNX
+    */
+    #ifdef AGM_IN_QNX
+        goto done;
+    #endif
+
     if (mixer == NULL) {
         card_id = device_get_snd_card_id();
         if (card_id < 0) {
@@ -1151,6 +1162,7 @@ int parse_snd_card()
 {
     unsigned int count = 0;
     int ret = 0;
+    int hw_ret = 0, virt_ret = 0;
     struct listnode *dev_node, *temp;
     struct device_obj *dev_obj = NULL;
 
@@ -1158,17 +1170,33 @@ int parse_snd_card()
     list_init(&device_group_data_list);
     num_group_devices = 0;
 
-    ret = parse_hw_snd_card();
-    if (ret < 0)
-        goto free_device;
+    hw_ret = parse_hw_snd_card();
 
-    count = ret;
+    /*
+     * Parse hardware sound card first. If hardware sound card parsing fails,
+     * continue to parse virtual sound card as a fallback mechanism to ensure
+     * at least virtual audio devices are available for the system.
+     */
+    if (hw_ret < 0) {
+        AGM_LOGE("HW snd card failed to parse with error %d", hw_ret);
+    } else {
+        count = hw_ret;
+    }
 
-    ret = parse_virtual_snd_card();
-    if (ret < 0)
-        goto free_device;
+    virt_ret = parse_virtual_snd_card();
+    if (virt_ret < 0) {
+        AGM_LOGE("virtual snd card failed to parse with error %d", virt_ret);
+        /* Only fail if both parsing attempts failed */
+        if (hw_ret < 0) {
+            /* Return HW error as it's typically the primary cause */
+            AGM_LOGE("Both HW and virtual card parsing failed (HW: %d, Virtual: %d)", hw_ret, virt_ret);
+            ret = hw_ret;
+            goto free_device;
+        }
+    } else {
+        count += virt_ret;
+    }
 
-    count += ret;
     /*
      * count 0 indicates that there is no valid pcm node.
      * For HW sndcard, it means that expected sound card

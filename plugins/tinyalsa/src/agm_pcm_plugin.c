@@ -38,7 +38,11 @@
 #include <agm/agm_api.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef __QNX__
+#include <sys/ioctl.h>
+#else
 #include <linux/ioctl.h>
+#endif
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sound/asound.h>

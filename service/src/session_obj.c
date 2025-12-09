@@ -36,7 +36,9 @@
 #include <string.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
-
+#ifdef __QNX__
+#include <limits.h>
+#endif
 #ifdef DYNAMIC_LOG_ENABLED
 #include <log_xml_parser.h>
 #define LOG_MASK AGM_MOD_FILE_SESSION_OBJ
