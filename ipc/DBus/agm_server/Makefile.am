@@ -24,8 +24,3 @@ agm_server_SOURCES = ./src/agm-server-daemon.c
 agm_server_CFLAGS = $(AM_CFLAGS) $(GLIB_CFLAGS) -DAGM_USE_SYSLOG -Wno-write-strings
 agm_server_LDADD = libagmserverwrapper.la $(GLIB_LIBS)
 agm_server_LDFLAGS = -ldl -shared -avoid-version
-
-if USE_ARE_ON_APPS
-agm_server_LDFLAGS +=  -lspf -lar-gpr
-agm_server_CFLAGS += -DARE_ON_APPS
-endif
