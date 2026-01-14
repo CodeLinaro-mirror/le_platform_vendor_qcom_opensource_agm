@@ -57,5 +57,10 @@ if USE_G_STR_FUNC
 libagm_la_CFLAGS += -Dstrlcpy=g_strlcpy -Dstrlcat=g_strlcat
 endif
 
+if USE_ARE_ON_APPS
+libagm_la_LIBADD += -lspf -lar-gpr
+libagm_la_CFLAGS += -DARE_ON_APPS
+endif
+
 libagm_la_CFLAGS += -D__unused=__attribute__\(\(__unused__\)\)
 libagm_la_LDFLAGS += -module -shared -avoid-version
