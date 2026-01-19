@@ -1178,6 +1178,9 @@ static int agmctl_read_bytes(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
     case AGM_FE_CTL_NAME_EVENT:
         rc = agmctl_pcm_event_get(&agmctl->controls[key], data, len);
         break;
+    case AGM_BE_CTL_NAME_METADATA:
+    case AGM_FE_CTL_NAME_METADATA:
+        break;
     default:
         rc = -EINVAL;
         AGM_LOGE("Unsupported control %d\n", agmctl->controls[key].ctl_id);

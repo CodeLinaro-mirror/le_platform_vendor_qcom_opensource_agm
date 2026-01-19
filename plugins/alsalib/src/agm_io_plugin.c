@@ -37,7 +37,7 @@
 #include <agm/agm_api.h>
 #include <agm/agm_list.h>
 #include <snd-card-def.h>
-#include "utils.h"
+#include <agm/utils.h>
 
 #define ARRAY_SIZE(a)   (sizeof(a)/sizeof(a[0]))
 
