@@ -84,7 +84,7 @@ void stream_close(int sig)
 
 static void usage(void)
 {
-    printf(" Usage: %s file.wav [-help print usage] [-D card] [-d device]\n"
+    printf(" Usage: agmplay file.wav [-help print usage] [-D card] [-d device]\n"
            " [-p period_size] [-n n_periods]\n"
            " [-num_intf num of interfaces followed by interface name]\n"
            " [-i intf_name] : Can be multiple if num_intf is more than 1\n"
