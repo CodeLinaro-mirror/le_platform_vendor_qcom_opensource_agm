@@ -407,7 +407,7 @@ static int agm_hw_constraint(struct agmio_priv* priv)
         return ret;
 
     ret = snd_pcm_ioplug_set_param_minmax(io, SND_PCM_IOPLUG_HW_CHANNELS,
-                                          1, 8);
+                                          1, 16);
     if (ret < 0)
             return ret;
 
