@@ -1553,7 +1553,8 @@ int configure_pcm_converter(struct mixer *mixer, int device, char *intf_name, in
 
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
                                     enum stream_type stype, unsigned int instance_kv,
-                                    unsigned int vmid_kv, uint32_t offload_proc_kv)
+                                    unsigned int vmid_kv, uint32_t offload_proc_kv,
+                                    struct agm_key_value *custom_ckv, unsigned int num_custom_ckv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1566,6 +1567,10 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
     uint32_t gkv_size, ckv_size, prop_size, index = 0;
     int ctl_len = 0, ret = 0, offset = 0;
     char *type = "ZERO";
+
+    /* account for any additional caller-supplied calibration key-value pairs */
+    if (custom_ckv && num_custom_ckv > 0)
+        num_ckv += num_custom_ckv;
 
     ret = set_agm_stream_metadata_type(mixer, device, type, stype);
     if (ret)
@@ -1630,6 +1635,17 @@ int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t va
     index = 0;
     ckv[index].key = VOLUME;
     ckv[index].value = LEVEL_0;
+    index++;
+
+    /* append caller-supplied calibration key-value pairs */
+    if (custom_ckv && num_custom_ckv > 0) {
+        for (unsigned int ci = 0; ci < num_custom_ckv; ci++, index++) {
+            ckv[index].key   = custom_ckv[ci].key;
+            ckv[index].value = custom_ckv[ci].value;
+            printf("custom ckv[%u]: key=0x%x, value=0x%x\n", ci,
+                   custom_ckv[ci].key, custom_ckv[ci].value);
+        }
+    }
 
     prop->prop_id = 0;  //Update prop_id here
     prop->num_values = num_props;
@@ -1853,7 +1869,9 @@ int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val,
 }
 
 int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase,
-                            enum stream_type stype, unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv)
+                            enum stream_type stype, unsigned int instance_kv, unsigned int vmid_kv,
+                            uint32_t offload_proc_kv,
+                            struct agm_key_value *custom_ckv, unsigned int num_custom_ckv)
 {
     char *stream = "PCM";
     char *control = "metadata";
@@ -1866,6 +1884,10 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     uint32_t gkv_size, ckv_size, prop_size, index = 0;
     int ctl_len = 0, ret = 0, offset = 0;
     char *type = "ZERO";
+
+    /* account for any additional caller-supplied calibration key-value pairs */
+    if (custom_ckv && num_custom_ckv > 0)
+        num_ckv += num_custom_ckv;
 
     ret = set_agm_stream_metadata_type(mixer, device, type, stype);
     if (ret)
@@ -1957,6 +1979,17 @@ int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum 
     index = 0;
     ckv[index].key = VOLUME;
     ckv[index].value = LEVEL_0;
+    index++;
+
+    /* append caller-supplied calibration key-value pairs */
+    if (custom_ckv && num_custom_ckv > 0) {
+        for (unsigned int ci = 0; ci < num_custom_ckv; ci++, index++) {
+            ckv[index].key   = custom_ckv[ci].key;
+            ckv[index].value = custom_ckv[ci].value;
+            printf("custom ckv[%u]: key=0x%x, value=0x%x\n", ci,
+                   custom_ckv[ci].key, custom_ckv[ci].value);
+        }
+    }
 
     prop->prop_id = 0;  //Update prop_id here
     prop->num_values = num_props;

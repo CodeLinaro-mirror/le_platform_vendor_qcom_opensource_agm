@@ -502,7 +502,7 @@ void play_samples(char *name, unsigned int card, unsigned int device, unsigned i
 
     /* set audio interface metadata mixer control */
     if (set_agm_stream_metadata(mixer, device, stream_kv, PLAYBACK, STREAM_COMPRESS,
-                                instance_kv)) {
+                                instance_kv, 0, 0, NULL, 0)) {
         printf("Failed to set stream metadata\n");
         goto MIXER_EXIT;
     }

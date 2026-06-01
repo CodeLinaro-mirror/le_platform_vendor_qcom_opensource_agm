@@ -87,7 +87,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
                  , bool kpi_logging
 #endif
-                 );
+                 , struct agm_key_value *custom_ckv, unsigned int num_ckv);
 
 void stream_close(int sig)
 {
@@ -115,7 +115,9 @@ static void usage(void)
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
            " [-kpi_logging] Emit Boot KPI markers\n"
 #endif
-    );
+           " [-num_ckv count] : Number of custom calibration key-value pairs that follow\n"
+           " [-ckv key1 val1 [key2 val2 ...]] : Custom CKV pairs (hex). Requires -num_ckv first.\n"
+           "   Example: -num_ckv 2 -ckv 0xA4000000 0x5 0xD2000000 0x1\n");
 }
 
 int main(int argc, char **argv)
@@ -146,6 +148,8 @@ int main(int argc, char **argv)
 #endif
     unsigned int *devicepp_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
     unsigned int *device_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
+    unsigned int num_ckv = 0;
+    struct agm_key_value *custom_ckv = NULL;
 
     if (!device_kv || !devicepp_kv) {
         printf(" insufficient memory\n");
@@ -295,6 +299,28 @@ int main(int argc, char **argv)
         } else if (strcmp(*argv, "-kpi_logging") == 0) {
             kpi_logging = true;
 #endif
+        } else if (strcmp(*argv, "-num_ckv") == 0) {
+            argv++;
+            if (*argv)
+                num_ckv = atoi(*argv);
+        } else if (strcmp(*argv, "-ckv") == 0) {
+            if (num_ckv <= 0) {
+                printf("Error: -num_ckv must be specified before -ckv\n");
+                return 1;
+            }
+            custom_ckv = (struct agm_key_value *) calloc(num_ckv, sizeof(struct agm_key_value));
+            if (!custom_ckv) {
+                printf("insufficient memory for custom_ckv\n");
+                return 1;
+            }
+            for (i = 0; i < num_ckv; i++) {
+                argv++;
+                if (*argv)
+                    custom_ckv[i].key = convert_char_to_hex(*argv);
+                argv++;
+                if (*argv)
+                    custom_ckv[i].value = convert_char_to_hex(*argv);
+            }
         } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
@@ -312,18 +338,25 @@ int main(int argc, char **argv)
     }
 #endif
 
-    printf("Stream kv= 0x%X, Instance kv = 0x%X\n",stream_kv,instance_kv);
+    printf("Stream kv= 0x%X, Instance kv = 0x%X\n", stream_kv, instance_kv);
     for (int intf_idx = 0; intf_idx < intf_num; intf_idx++) {
         printf("Device PP kv[%d]= 0x%X, Device kv[%d] = 0x%X\n VMID kv = 0x%X\n",
             intf_idx, devicepp_kv[intf_idx], intf_idx, device_kv[intf_idx], vmid_kv);
     }
+    if (custom_ckv && num_ckv > 0) {
+        printf("Custom CKV count = %u\n", num_ckv);
+        for (i = 0; i < num_ckv; i++)
+            printf("  ckv[%u]: key=0x%X, value=0x%X\n", i,
+                   custom_ckv[i].key, custom_ckv[i].value);
+    }
+
     play_sample(file, card, device, usb_device, channels, rate, bits, device_kv, stream_kv,
                 instance_kv, devicepp_kv, chunk_fmt, haptics, intf_name, intf_num,
                 is_24_LE, vmid_kv, offload_proc_kv
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
                 , kpi_logging
 #endif
-                );
+                , custom_ckv, num_ckv);
 
     fclose(file);
     if (device_kv)
@@ -332,6 +365,8 @@ int main(int argc, char **argv)
         free(devicepp_kv);
     if (intf_name)
         free(intf_name);
+    if (custom_ckv)
+        free(custom_ckv);
 
     return 0;
 }
@@ -340,11 +375,11 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                  unsigned int channels, unsigned int rate, unsigned int bits,
                  unsigned int *device_kv, unsigned int stream_kv, unsigned int instance_kv,
                  unsigned int *devicepp_kv, struct chunk_fmt fmt, bool haptics, char **intf_name,
-                 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv
+		 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
                  , bool kpi_logging
 #endif
-)
+                 , struct agm_key_value *custom_ckv, unsigned int num_ckv)
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -455,7 +490,8 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
 
     /* set stream metadata mixer control */
     if (set_agm_stream_metadata(mixer, device, stream_kv, PLAYBACK, STREAM_PCM,
-                                instance_kv, vmid_kv, offload_proc_kv)) {
+                                instance_kv, vmid_kv, offload_proc_kv,
+                                custom_ckv, num_ckv)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }

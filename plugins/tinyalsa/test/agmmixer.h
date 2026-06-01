@@ -35,6 +35,7 @@
 #define __AGM_COMMON_H__
 
 #include <tinyalsa/asoundlib.h>
+#include <agm/agm_api.h>
 #include <kvh2xml.h>
 
 enum usecase_type{
@@ -91,9 +92,11 @@ int set_agm_stream_metadata_type(struct mixer *mixer, int device, char *val, enu
 int set_agm_streamdevice_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type usecase, enum stream_type stype,
                                   char *intf_name, unsigned int devicepp_kv);
 int set_agm_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type utype, enum stream_type stype,
-                            unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv);
+                            unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv,
+                            struct agm_key_value *custom_ckv, unsigned int num_custom_ckv);
 int set_agm_capture_stream_metadata(struct mixer *mixer, int device, uint32_t val, enum usecase_type utype, enum stream_type stype,
-                            unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv);
+                            unsigned int instance_kv, unsigned int vmid_kv, uint32_t offload_proc_kv,
+                            struct agm_key_value *custom_ckv, unsigned int num_custom_ckv);
 int connect_agm_audio_intf_to_stream(struct mixer *mixer, unsigned int device,
                                   char *intf_name, enum stream_type, bool connect);
 int agm_mixer_register_event(struct mixer *mixer, int device, enum stream_type stype, uint32_t miid, uint8_t is_register);

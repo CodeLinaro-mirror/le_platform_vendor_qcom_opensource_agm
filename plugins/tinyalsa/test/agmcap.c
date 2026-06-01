@@ -73,7 +73,8 @@ static unsigned int capture_sample(FILE *file, unsigned int card, unsigned int d
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
                             unsigned int device_kv, unsigned int instance_kv,
-                            unsigned int devicepp_kv, unsigned int vmid_kv, unsigned int offload_proc_kv);
+                            unsigned int devicepp_kv, unsigned int vmid_kv, unsigned int offload_proc_kv,
+                            struct agm_key_value *custom_ckv, unsigned int num_ckv);
 
 static void sigint_handler(int sig)
 {
@@ -93,7 +94,10 @@ static void usage(void)
            " [-vmid_kv] Uses the KV value from acdb. Assign 0 or leave blank for no vmid_kv,\n"
            " PVM - 0xDD000001, LA_GVM1 - 0xDD000002, LA_GVM2 - 0xDD000003, LA_GVM3 - 0xDD000004.\n"
            " 0: If bps is 32, and format should be S32_LE\n"
-           " 1: If bps is 24, and format should be S24_LE\n");
+           " 1: If bps is 24, and format should be S24_LE\n"
+           " [-num_ckv count] : Number of custom calibration key-value pairs that follow\n"
+           " [-ckv key1 val1 [key2 val2 ...]] : Custom CKV pairs (hex). Requires -num_ckv first.\n"
+           "   Example: -num_ckv 2 -ckv 0xA4000000 0x5 0xD2000000 0x1\n");
 }
 
 int main(int argc, char **argv)
@@ -121,6 +125,9 @@ int main(int argc, char **argv)
     bool is_24_LE = false;
     unsigned int offload_proc_kv = 0;
     unsigned int vmid_kv = 0;
+    unsigned int num_ckv = 0;
+    struct agm_key_value *custom_ckv = NULL;
+    unsigned int i = 0;
 
     if (argc < 2) {
         usage();
@@ -204,6 +211,30 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 offload_proc_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-num_ckv") == 0) {
+            argv++;
+            if (*argv)
+                num_ckv = atoi(*argv);
+        } else if (strcmp(*argv, "-ckv") == 0) {
+            if (num_ckv == 0) {
+                printf("Error: -num_ckv must be specified before -ckv\n");
+                fclose(file);
+                return 1;
+            }
+            custom_ckv = (struct agm_key_value *) calloc(num_ckv, sizeof(struct agm_key_value));
+            if (!custom_ckv) {
+                printf("insufficient memory for custom_ckv\n");
+                fclose(file);
+                return 1;
+            }
+            for (i = 0; i < num_ckv; i++) {
+                argv++;
+                if (*argv)
+                    custom_ckv[i].key = convert_char_to_hex(*argv);
+                argv++;
+                if (*argv)
+                    custom_ckv[i].value = convert_char_to_hex(*argv);
+            }
         } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
@@ -244,6 +275,12 @@ int main(int argc, char **argv)
 
     printf("Stream kv= 0x%X, Instance kv = 0x%X, Device PP kv= 0x%X, Device kv = 0x%X\n",
             stream_kv, instance_kv, devicepp_kv, device_kv);
+    if (custom_ckv && num_ckv > 0) {
+        printf("Custom CKV count = %u\n", num_ckv);
+        for (i = 0; i < num_ckv; i++)
+            printf("  ckv[%u]: key=0x%X, value=0x%X\n", i,
+                   custom_ckv[i].key, custom_ckv[i].value);
+    }
 
     ret = get_device_media_config(BACKEND_CONF_FILE, intf_name, &config);
     if (ret) {
@@ -272,7 +309,7 @@ int main(int argc, char **argv)
                             header.sample_rate, bits, format,
                             period_size, period_count, cap_time, &config,
                             stream_kv, device_kv, instance_kv, devicepp_kv,
-                            vmid_kv, offload_proc_kv);
+                            vmid_kv, offload_proc_kv, custom_ckv, num_ckv);
     printf("Captured %u frames\n", frames);
 
     /* write header now all information is known */
@@ -283,6 +320,9 @@ int main(int argc, char **argv)
 
     fclose(file);
 
+    if (custom_ckv)
+        free(custom_ckv);
+
     return 0;
 }
 
@@ -292,7 +332,8 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             unsigned int period_count, unsigned int cap_time,
                             struct device_config *dev_config, unsigned int stream_kv,
                             unsigned int device_kv, unsigned int instance_kv, unsigned int devicepp_kv,
-                            unsigned int vmid_kv, unsigned int offload_proc_kv)
+                            unsigned int vmid_kv, unsigned int offload_proc_kv,
+                            struct agm_key_value *custom_ckv, unsigned int num_ckv)
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -390,7 +431,8 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
 
     /* set stream metadata mixer control */
     if (set_agm_capture_stream_metadata(mixer, device, stream_kv, CAPTURE, STREAM_PCM,
-                                        instance_kv, vmid_kv, offload_proc_kv)) {
+                                        instance_kv, vmid_kv, offload_proc_kv,
+                                        custom_ckv, num_ckv)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }

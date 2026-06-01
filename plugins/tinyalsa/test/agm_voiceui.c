@@ -303,7 +303,7 @@ void voice_ui_test(unsigned int card, unsigned int device, unsigned int audio_in
 
     /* set stream metadata mixer control */
     if (set_agm_stream_metadata(mixer, device, stream_kv, CAPTURE, STREAM_PCM,
-                                instance_kv)) {
+                                instance_kv, 0, 0, NULL, 0)) {
         printf("Failed to set pcm metadata\n");
         goto err_close_mixer;
     }
