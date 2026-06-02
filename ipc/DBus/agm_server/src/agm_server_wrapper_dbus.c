@@ -167,6 +167,11 @@ enum AgmEventSignals {
     AgmSignalMax
 };
 
+enum AgmModuleSignals {
+    AgmSsrEventCb,
+    AgmModuleSignalMax
+};
+
 enum {
     SES_THREAD_IDLE,
     SES_THREAD_READ_QUEUED,
@@ -332,12 +337,16 @@ static agm_dbus_signal event_callback[AgmSignalMax] = {
     {"AgmSesEventCb", "uuuay"}
 };
 
+static agm_dbus_signal module_signals[AgmModuleSignalMax] = {
+    {"AgmSsrEventCb", "u"}
+};
+
 agm_dbus_interface_info module_interface_info = {
     .name=AGM_MODULE_IFACE,
     .methods=agm_dbus_module_methods,
     .method_count=AgmDbusModuleMethodMax,
-    .signals=NULL,
-    .signal_count=0
+    .signals=module_signals,
+    .signal_count=AgmModuleSignalMax
 };
 
 agm_dbus_interface_info session_interface_info = {
@@ -469,7 +478,7 @@ static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
 }
 
 void agm_free_session(gpointer c_data) {
-    agm_session_data *data = (agm_session_data *)data;
+    agm_session_data *data = (agm_session_data *)c_data;
 
     if(data == NULL)
         return;
@@ -673,6 +682,7 @@ static void ipc_agm_session_deregister_cb(DBusConnection *conn,
     uint64_t client_data;
     GList *node = NULL;
     agm_callback_data *cb_data = NULL;
+    gboolean newly_created = FALSE;
 
     if (userdata == NULL) {
         AGM_LOGE("Invalid userdata");
@@ -700,16 +710,24 @@ static void ipc_agm_session_deregister_cb(DBusConnection *conn,
     dbus_message_iter_get_basic(&arg_i, &evt_type);
     dbus_message_iter_next(&arg_i);
     dbus_message_iter_get_basic(&arg_i, &client_data);
-
+    newly_created = (g_hash_table_lookup(mdata->sessions,
+                                         GUINT_TO_POINTER(session_id)) == NULL);
     ses_data = get_session_data(mdata, session_id);
+    if (ses_data == NULL) {
+        AGM_LOGE("%s: get_session_data failed for session %u", __func__, session_id);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "get_session_data failed.");
+        return;
+    }
 
     if (agm_session_register_cb(session_id, NULL,
                                 (enum event_type)evt_type,
                                 (void *)ses_data) != 0) {
         AGM_LOGE("agm_session_register_cb failed.");
+        if (newly_created)
+            g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(session_id));
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
             "Failed to de-register callback. agm_session_register_cb failed.");
-        agm_free_session(ses_data);
         return;
     }
 
@@ -718,7 +736,6 @@ static void ipc_agm_session_deregister_cb(DBusConnection *conn,
         AGM_LOGE("cb_data is NULL");
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                              "cb_data is NULL");
-        agm_free_session(ses_data);
         return;
     }
     cb_data->session_id = session_id;
@@ -753,6 +770,7 @@ static void ipc_agm_session_register_cb(DBusConnection *conn,
     agm_module_dbus_data *mdata = (agm_module_dbus_data *)userdata;
     uint64_t client_data;
     agm_callback_data *cb_data = NULL;
+    gboolean newly_created = FALSE;
 
     if (userdata == NULL) {
         AGM_LOGE("Invalid userdata");
@@ -780,17 +798,25 @@ static void ipc_agm_session_register_cb(DBusConnection *conn,
     dbus_message_iter_get_basic(&arg_i, &evt_type);
     dbus_message_iter_next(&arg_i);
     dbus_message_iter_get_basic(&arg_i, &client_data);
-
+    newly_created = (g_hash_table_lookup(mdata->sessions,
+                                         GUINT_TO_POINTER(session_id)) == NULL);
     ses_data = get_session_data(mdata, session_id);
+    if (ses_data == NULL) {
+        AGM_LOGE("%s: get_session_data failed for session %u", __func__, session_id);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "get_session_data failed.");
+        return;
+    }
 
     if (agm_session_register_cb(session_id,
                                 agmevent_cb,
                                 (enum event_type)evt_type,
                                 (void *)ses_data) != 0) {
         AGM_LOGE("agm_session_register_cb failed.");
+        if (newly_created)
+            g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(session_id));
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                             "agm_session_register_cb failed.");
-        agm_free_session(ses_data);
         return;
     }
 
@@ -799,7 +825,6 @@ static void ipc_agm_session_register_cb(DBusConnection *conn,
         AGM_LOGE("cb_data is NULL");
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                              "cb_data is NULL");
-        agm_free_session(ses_data);
         return;
     }
     cb_data->session_id = session_id;
@@ -2552,10 +2577,19 @@ static void ipc_agm_session_open(DBusConnection *conn,
     dbus_message_iter_get_basic(&arg_i, &session_id);
     dbus_message_iter_next(&arg_i);
     dbus_message_iter_get_basic(&arg_i, &sess_mode);
+    gboolean newly_created = (g_hash_table_lookup(mdata->sessions,
+                                                   GUINT_TO_POINTER(session_id)) == NULL);
     ses_data = get_session_data(mdata, session_id);
+    if (ses_data == NULL) {
+        AGM_LOGE("%s: get_session_data failed for session %u", __func__, session_id);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "get_session_data failed.");
+        return;
+    }
 
     if (agm_session_open(session_id, (enum agm_session_mode) sess_mode, &ses_data->handle)) {
-        agm_free_session(ses_data);
+        if (newly_created)
+            g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(session_id));
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                             "agm_session_open failed.");
         return;
@@ -2587,6 +2621,42 @@ static void ipc_agm_session_open(DBusConnection *conn,
     dbus_message_unref(reply);
     AGM_LOGD("%s :Exit ", __func__);
     return;
+}
+
+/**
+ * AGM SSR callback registered with the AGM SSR manager.
+ * Broadcasts an AgmSsrEventCb D-Bus signal to all connected clients
+ * whenever the audio subsystem goes down or comes back up.
+ */
+static void agm_ssr_event_cb(enum agm_ssr_event_type event_type,
+                             void *client_data __unused)
+{
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+    uint32_t evt = (uint32_t)event_type;
+
+    if (!mdata || !mdata->conn) {
+        AGM_LOGE("%s: mdata not initialised, dropping SSR event %u",
+                 __func__, evt);
+        return;
+    }
+
+    AGM_LOGI("%s: broadcasting SSR event %u (%s)", __func__, evt,
+             (event_type == AGM_SSR_EVENT_AUDIO_SVC_DN) ? "DOWN" : "UP");
+
+    message = dbus_message_new_signal(mdata->dbus_obj_path,
+                                      module_interface_info.name,
+                                      module_signals[AgmSsrEventCb].method_name);
+    if (!message) {
+        AGM_LOGE("%s: failed to create SSR signal message", __func__);
+        return;
+    }
+
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT32, &evt);
+
+    agm_dbus_send_signal(mdata->conn, message);
+    dbus_message_unref(message);
 }
 
 /* Initialize module data. Get dbus connection and register module interface
@@ -2672,19 +2742,31 @@ int ipc_agm_init() {
         mdata = NULL;
         return rc;
     }
-
     dbus_error_free(&err);
     return rc;
+}
+
+int ipc_agm_ssr_register(void) {
+    int rc = agm_register_ssr_cb(agm_ssr_event_cb, NULL);
+    if (rc != 0)
+        AGM_LOGE("%s: agm_register_ssr_cb failed rc=%d", __func__, rc);
+    return rc;
+}
+
+void ipc_agm_ssr_deregister(void) {
+    agm_deregister_ssr_cb(agm_ssr_event_cb, NULL);
 }
 
 void ipc_agm_deinit() {
     AGM_LOGV("%s : ", __func__);
 
     if (mdata == NULL) {
-        AGM_LOGE("ipc_agm_deinit failed");
-        g_hash_table_remove_all(mdata->sessions);
-        g_hash_table_unref(mdata->sessions);
+        AGM_LOGE("ipc_agm_deinit failed: mdata is NULL");
+        return;
     }
+
+    g_hash_table_remove_all(mdata->sessions);
+    g_hash_table_unref(mdata->sessions);
 
     if (mdata->dbus_obj_path != NULL) {
         if (agm_dbus_remove_interface(mdata->conn,

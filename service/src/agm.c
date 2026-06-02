@@ -41,6 +41,7 @@
 #include "ats.h"
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <pthread.h>
 #include <unistd.h>
 #include "gsl_intf.h"
@@ -68,6 +69,102 @@
 static bool agm_initialized = 0;
 static pthread_t ats_thread;
 static const int MAX_RETRIES = 120;
+
+/*
+ * Set true on AGM_SSR_EVENT_AUDIO_SVC_DN, cleared after AGM_SSR_EVENT_AUDIO_SVC_UP
+ * While true, agm_session_open/prepare/start return
+ * -EAGAIN — covers all callers (D-Bus, virtio-be, in-process).
+ */
+static atomic_bool g_ssr_active = ATOMIC_VAR_INIT(false);
+
+/* -----------------------------------------------------------------------
+ * AGM SSR (Audio Subsystem Restart) manager
+ *
+ * AGM registers a single global callback with GSL. When GSL fires an
+ * AUDIO_SVC_DN or AUDIO_SVC_UP event AGM iterates its own list of
+ * registered client callbacks and dispatches the event to each one.
+ * ----------------------------------------------------------------------- */
+
+/** One entry in the SSR client callback list */
+typedef struct agm_ssr_client {
+    agm_ssr_cb  cb;          /**< client callback */
+    void       *client_data; /**< opaque client data */
+    struct listnode list;    /**< intrusive list node */
+} agm_ssr_client_t;
+
+/** SSR manager state */
+static struct {
+    struct listnode  client_list;            /**< registered client callbacks */
+    pthread_mutex_t  lock;                   /**< serialises all list access */
+    bool             initialized;            /**< true after first registration */
+} g_ssr_mgr = {
+    .lock        = PTHREAD_MUTEX_INITIALIZER,
+    .initialized = false,
+};
+
+static uint32_t agm_gsl_global_event_cb(enum gsl_global_event_ids event_id,
+                                        void *event_payload __unused,
+                                        size_t event_payload_sz __unused,
+                                        void *client_data __unused)
+{
+    enum agm_ssr_event_type agm_event;
+    struct listnode *node = NULL;
+    agm_ssr_client_t *client = NULL;
+
+    if (event_id == GSL_GLOBAL_EVENT_AUDIO_SVC_DN) {
+        agm_event = AGM_SSR_EVENT_AUDIO_SVC_DN;
+        atomic_store(&g_ssr_active, true);
+        AGM_LOGI("%s: audio subsystem DOWN", __func__);
+    } else if (event_id == GSL_GLOBAL_EVENT_AUDIO_SVC_UP) {
+        agm_event = AGM_SSR_EVENT_AUDIO_SVC_UP;
+        /* clean up stale sessions before notifying clients so UP handlers start from a clean state */
+        session_obj_ssr_cleanup();
+        atomic_store(&g_ssr_active, false);
+        AGM_LOGI("%s: audio subsystem UP", __func__);
+    } else {
+        return 0;
+    }
+
+    /*
+     * Dispatch in registered order so that primary clients (resource
+     * setup) complete before secondary clients (UP broadcast), ensuring
+     * downstream consumers only receive UP after the system is ready.
+     */
+    pthread_mutex_lock(&g_ssr_mgr.lock);
+    list_for_each(node, &g_ssr_mgr.client_list) {
+        client = node_to_item(node, agm_ssr_client_t, list);
+        if (client->cb)
+            client->cb(agm_event, client->client_data);
+    }
+    pthread_mutex_unlock(&g_ssr_mgr.lock);
+
+    return 0;
+}
+
+/**
+ * Ensure the SSR manager is initialised (idempotent).
+ * MUST be called with g_ssr_mgr.lock already held.
+ */
+static int agm_ssr_mgr_init_locked(void)
+{
+    int ret = 0;
+
+    if (g_ssr_mgr.initialized)
+        return 0;
+
+    list_init(&g_ssr_mgr.client_list);
+
+    ret = gsl_register_global_event_cb(agm_gsl_global_event_cb, NULL);
+    if (ret) {
+        AGM_LOGE("%s: gsl_register_global_event_cb failed, ret=%d",
+                 __func__, ret);
+        return ar_err_get_lnx_err_code(ret);
+    }
+
+    g_ssr_mgr.initialized = true;
+    AGM_LOGD("%s: AGM SSR manager initialised", __func__);
+    return 0;
+}
 
 /** Get ADSP sub system mask */
 #define GSL_GET_SPF_SS_MASK(OSAL_SYS_ID) (1<<(OSAL_SYS_ID - 1))
@@ -743,11 +840,14 @@ int agm_session_open(uint32_t session_id,
                      enum agm_session_mode sess_mode,
                      uint64_t *hndl)
 {
-
     struct session_obj **handle = (struct session_obj**) hndl;
     if (!handle) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
+    }
+    if (atomic_load(&g_ssr_active)) {
+        AGM_LOGE("%s: SSR in progress\n", __func__);
+        return -EAGAIN;
     }
     return session_obj_open(session_id, sess_mode, handle);
 }
@@ -774,13 +874,15 @@ int agm_session_set_config(uint64_t hndl,
 
 int agm_session_prepare(uint64_t hndl)
 {
-
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
-
+    if (atomic_load(&g_ssr_active)) {
+        AGM_LOGE("%s: SSR in progress\n", __func__);
+        return -EAGAIN;
+    }
     if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
@@ -790,13 +892,15 @@ int agm_session_prepare(uint64_t hndl)
 
 int agm_session_start(uint64_t hndl)
 {
-
     struct session_obj *handle = (struct session_obj *) hndl;
     if (!handle) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
     }
-
+    if (atomic_load(&g_ssr_active)) {
+        AGM_LOGE("%s: SSR in progress\n", __func__);
+        return -EAGAIN;
+    }
     if (!session_obj_valid_check(hndl)) {
         AGM_LOGE("Invalid handle\n");
         return -EINVAL;
@@ -1187,6 +1291,90 @@ int agm_register_service_crash_callback(agm_service_crash_cb cb __unused,
 
     AGM_LOGE("client directly communicating with agm need not call this api");
     return -ENOSYS;
+}
+
+int agm_register_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    agm_ssr_client_t *entry = NULL;
+    int ret = 0;
+
+    if (!cb) {
+        AGM_LOGE("%s: cb is NULL", __func__);
+        return -EINVAL;
+    }
+
+    entry = calloc(1, sizeof(agm_ssr_client_t));
+    if (!entry) {
+        AGM_LOGE("%s: failed to allocate SSR client entry", __func__);
+        return -ENOMEM;
+    }
+    entry->cb          = cb;
+    entry->client_data = client_data;
+
+    pthread_mutex_lock(&g_ssr_mgr.lock);
+
+    /*
+     * Lazy-init: register AGM's single GSL global-event callback on the
+     * first client registration. GSL only supports one global callback so
+     * AGM acts as a multiplexer for all its own clients.
+     */
+    ret = agm_ssr_mgr_init_locked();
+    if (ret) {
+        pthread_mutex_unlock(&g_ssr_mgr.lock);
+        free(entry);
+        return ret;
+    }
+
+    list_add_tail(&g_ssr_mgr.client_list, &entry->list);
+
+    pthread_mutex_unlock(&g_ssr_mgr.lock);
+
+    AGM_LOGD("%s: registered SSR callback cb=%p client_data=%p",
+             __func__, (void *)cb, client_data);
+    return 0;
+}
+
+int agm_deregister_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    struct listnode *node = NULL;
+    struct listnode *temp = NULL;
+    agm_ssr_client_t *entry = NULL;
+    bool found = false;
+
+    if (!cb) {
+        AGM_LOGE("%s: cb is NULL", __func__);
+        return -EINVAL;
+    }
+
+    pthread_mutex_lock(&g_ssr_mgr.lock);
+
+    if (!g_ssr_mgr.initialized) {
+        pthread_mutex_unlock(&g_ssr_mgr.lock);
+        AGM_LOGE("%s: SSR manager not initialised, nothing to deregister",
+                 __func__);
+        return -ENOENT;
+    }
+
+    list_for_each_safe(node, temp, &g_ssr_mgr.client_list) {
+        entry = node_to_item(node, agm_ssr_client_t, list);
+        if (entry->cb == cb && entry->client_data == client_data) {
+            list_remove(node);
+            free(entry);
+            found = true;
+            AGM_LOGD("%s: deregistered SSR callback cb=%p client_data=%p",
+                     __func__, (void *)cb, client_data);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_ssr_mgr.lock);
+
+    if (!found) {
+        AGM_LOGE("%s: SSR callback cb=%p client_data=%p not found",
+                 __func__, (void *)cb, client_data);
+        return -ENOENT;
+    }
+
+    return 0;
 }
 
 int agm_set_gapless_session_metadata(uint64_t handle,

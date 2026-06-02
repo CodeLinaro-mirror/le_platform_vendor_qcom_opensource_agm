@@ -318,6 +318,32 @@ static void session_pool_free()
     free(sess_pool);
 }
 
+void session_obj_ssr_cleanup(void)
+{
+    struct session_obj *sess_obj;
+    struct listnode *node, *next;
+    int ret = 0;
+
+    if (!sess_pool)
+        return;
+
+    pthread_mutex_lock(&sess_pool->lock);
+    list_for_each_safe(node, next, &sess_pool->session_list) {
+        sess_obj = node_to_item(node, struct session_obj, node);
+        pthread_mutex_lock(&sess_obj->lock);
+        if (sess_obj->state != SESSION_CLOSED) {
+            AGM_LOGI("%s: SSR DN: closing session %u", __func__, sess_obj->sess_id);
+            ret = session_close(sess_obj);
+            if (ret)
+                AGM_LOGE("%s: session_close(%u) ret=%d (ignored, DSP down)",
+                         __func__, sess_obj->sess_id, ret);
+        }
+        pthread_mutex_unlock(&sess_obj->lock);
+        /* sess_obj stays in pool — removed only at shutdown by session_pool_free() */
+    }
+    pthread_mutex_unlock(&sess_pool->lock);
+}
+
 static struct session_obj* session_obj_create(int session_id)
 {
     struct session_obj *obj = NULL;
