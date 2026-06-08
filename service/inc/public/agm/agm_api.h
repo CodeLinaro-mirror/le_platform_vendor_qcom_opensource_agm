@@ -28,7 +28,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2026, Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  *
  */
@@ -140,8 +140,9 @@ enum agm_data_mode
     AGM_DATA_INVALID,
     AGM_DATA_BLOCKING,      /**< Blocking mode */
     AGM_DATA_NON_BLOCKING,  /**< Non blocking mode */
-    AGM_DATA_PUSH_PULL,     /**< Push Pull mode */
-    AGM_DATA_EXTERN_MEM,    /**< Push Pull mode */
+    AGM_DATA_PUSH_PULL,          /**< Push Pull mode */
+    AGM_DATA_EXTERN_MEM,         /**< Extern mem mode */
+    AGM_DATA_EXTERN_PUSH_PULL,   /**< External push-pull mode: client pre-allocates data/pos bufs */
     AGM_DATA_MODE_MAX,
 };
 
@@ -1090,6 +1091,20 @@ int agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp);
  * api will return failure.
  */
 int agm_session_get_buf_info(uint32_t session_id, struct agm_buf_info *buf_info, uint32_t flag);
+
+/**
+ * \brief Set externally allocated shared memory buf_info for a given session.
+ *        Used for EXTERN_PUSH_PULL mode where the client (e.g. GVM) pre-allocates
+ *        the circular data buffer and position buffer and passes the dma-buf fds
+ *        to AGM before agm_session_prepare() is called.
+ *
+ * \param[in] session_id - Valid audio session id
+ * \param[in] buf_info   - agm_buf_info with data_buf_fd/pos_buf_fd and sizes
+ * \param[in] flag       - flag to indicate data buf / pos buf (same as get_buf_info)
+ *
+ * \return 0 on success, error code on failure.
+ */
+int agm_session_set_buf_info(uint32_t session_id, struct agm_buf_info *buf_info, uint32_t flag);
 
 /**
  * \brief Get shared memory buf_info

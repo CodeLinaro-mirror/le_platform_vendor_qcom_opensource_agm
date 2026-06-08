@@ -300,7 +300,51 @@ int configure_buffer_params(struct graph_obj *gph_obj,
             buf_config.attributes = GSL_DATA_MODE_NON_BLOCKING;
         else if (mode == AGM_DATA_PUSH_PULL)
             buf_config.attributes = GSL_DATA_MODE_PUSH_PULL;
-        else {
+        else if (mode == AGM_DATA_EXTERN_PUSH_PULL) {
+            /*
+             * EXTERN_PUSH_PULL: client (GVM) pre-allocates the circular data
+             * buffer and position buffer. We pass the PVM-side dma-buf fds to
+             * GSL which maps them into SPF address space via
+             * GSL_CMD_CONFIGURE_DP_WRITE/READ_PARAMS.
+             */
+            struct gsl_cmd_configure_datapath_read_write_params buf_config_v2 = {0};
+            /* Stack-local; valid for the synchronous gsl_ioctl() call below. */
+            uint64_t data_handle;
+            uint64_t total_size;
+
+            total_size = (uint64_t)buffer_config.count * buffer_config.size;
+            if (total_size > UINT32_MAX) {
+                AGM_LOGE("EXTERN_PUSH_PULL: buffer size overflow count=%u size=%zu\n",
+                         buffer_config.count, buffer_config.size);
+                ret = -EINVAL;
+                goto done;
+            }
+
+            buf_config_v2.attributes   = GSL_DATA_MODE_EXTERN_PUSH_PULL;
+            buf_config_v2.num_buffs    = 1;
+            buf_config_v2.buff_size    = (uint32_t)total_size;
+            buf_config_v2.shmem_ep_tag = PULL_PUSH_SHMEM_ENDPOINT;
+            buf_config_v2.start_threshold = sess_obj->stream_config.start_threshold;
+            buf_config_v2.stop_threshold  = sess_obj->stream_config.stop_threshold;
+
+            data_handle = (uint64_t)(uint32_t)sess_obj->extern_buf_info.data_buf_fd;
+            buf_config_v2.alloc_handles  = &data_handle;
+            buf_config_v2.pos_buf_handle = (uint64_t)(uint32_t)sess_obj->extern_buf_info.pos_buf_fd;
+
+            AGM_LOGD("EXTERN_PUSH_PULL: data_fd=%d pos_fd=%d buff_size=%u\n",
+                     sess_obj->extern_buf_info.data_buf_fd,
+                     sess_obj->extern_buf_info.pos_buf_fd,
+                     buf_config_v2.buff_size);
+
+            if (sess_obj->stream_config.dir == RX)
+                cmd_id = GSL_CMD_CONFIGURE_DP_WRITE_PARAMS;
+            else
+                cmd_id = GSL_CMD_CONFIGURE_DP_READ_PARAMS;
+
+            ret = gsl_ioctl(gph_obj->graph_handle, cmd_id, &buf_config_v2,
+                            sizeof(buf_config_v2));
+            goto done;
+        } else {
             AGM_LOGE("Unsupported buffer mode : %u, Default to Blocking\n", mode);
             buf_config.attributes = GSL_DATA_MODE_BLOCKING;
         }

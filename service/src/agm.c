@@ -1075,6 +1075,35 @@ done:
     return ret;
 }
 
+/* Set externally allocated buf fds for EXTERN_PUSH_PULL mode. */
+int agm_session_set_buf_info(uint32_t session_id, struct agm_buf_info *buf_info, uint32_t flag)
+{
+    struct session_obj *obj = NULL;
+    int ret = 0;
+
+    if (!buf_info) {
+        AGM_LOGE("Invalid buf_info\n");
+        return -EINVAL;
+    }
+
+    ret = session_obj_get(session_id, &obj);
+    if (ret) {
+        AGM_LOGE("Error:%d retrieving session obj with session id=%u\n", ret, session_id);
+        return ret;
+    }
+
+    if (flag != (DATA_BUF | POS_BUF))
+        AGM_LOGI("set_buf_info: unexpected flag=0x%x, expected DATA_BUF|POS_BUF\n", flag);
+
+    pthread_mutex_lock(&obj->lock);
+    obj->extern_buf_info = *buf_info;
+    pthread_mutex_unlock(&obj->lock);
+
+    AGM_LOGD("session_id=%u data_buf_fd=%d pos_buf_fd=%d\n",
+             session_id, buf_info->data_buf_fd, buf_info->pos_buf_fd);
+    return ret;
+}
+
 int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info)
 {
     shmem_link_node_t *shmem_node = NULL;
