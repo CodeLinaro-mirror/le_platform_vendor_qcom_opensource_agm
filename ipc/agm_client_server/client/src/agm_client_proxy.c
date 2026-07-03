@@ -864,12 +864,115 @@ int agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp)
 int agm_set_params_with_tag_to_acdb(uint32_t session_id, uint32_t aif_id,
                                        void *payload, size_t size) {return 0;}
 
-int agm_session_set_params(uint32_t session_id,
-                         void* payload, size_t size) {return 0;}
+int agm_session_set_params(uint32_t session_id, void* payload, size_t size)
+{
+    if (size > UINT32_MAX) {
+        AGM_LOGE(" payload size %zu exceeds max allowed (%u)\n", size, UINT32_MAX);
+        return -EINVAL;
+    }
 
-int agm_session_aif_set_params(uint32_t session_id,
-                        uint32_t aif_id,
-                        void* payload, size_t size) { return 0;}
+    pthread_mutex_lock(&g_mutex_open_cnt);
+    if (!g_agm_client) {
+        int rc = agm_init();
+        pthread_mutex_unlock(&g_mutex_open_cnt);
+        if (rc != 0) return rc;
+    } else {
+        pthread_mutex_unlock(&g_mutex_open_cnt);
+    }
+
+    uint32_t size32 = (uint32_t)size;
+    size_t in_buf_size = sizeof(uint32_t) * 2 + size;
+    uint8_t* in_buf = (uint8_t*)malloc(in_buf_size);
+    if (!in_buf) return -ENOMEM;
+
+    memcpy(in_buf, &session_id, sizeof(uint32_t));
+    memcpy(in_buf + sizeof(uint32_t), &size32, sizeof(uint32_t));
+    memcpy(in_buf + sizeof(uint32_t) * 2, payload, size);
+
+    uint8_t* out_buf = (uint8_t*)malloc(AGM_PROXY_MAX_MSG_SIZE);
+    if (!out_buf) {
+        free(in_buf);
+        return -ENOMEM;
+    }
+    uint32_t out_len = AGM_PROXY_MAX_MSG_SIZE;
+
+    int status = agm_send_ipc_msg(
+        g_agm_client,
+        AGM_MSG_TYPE_SET_SESSION_PARAM,
+        AGM_OP_SET_SESSION_PARAM,
+        in_buf, in_buf_size,
+        out_buf, &out_len
+    );
+
+    free(in_buf);
+    free(out_buf);
+
+    if (status != 0) {
+        AGM_LOGE("%s: agm_send_ipc_msg failed with status=%d\n", __func__, status);
+        return status;
+    }
+
+    AGM_LOGI("%s: session_id=%u, size=%zu - success\n",
+             __func__, session_id, size);
+    return 0;
+}
+
+
+int agm_session_aif_set_params(uint32_t session_id, uint32_t aif_id,
+                               void* payload, size_t size)
+{
+    if (size > UINT32_MAX) {
+        AGM_LOGE("%s: payload size %zu exceeds max allowed (%u)\n",
+                 __func__, size, UINT32_MAX);
+        return -EINVAL;
+    }
+
+    pthread_mutex_lock(&g_mutex_open_cnt);
+    if (!g_agm_client) {
+        int rc = agm_init();
+        pthread_mutex_unlock(&g_mutex_open_cnt);
+        if (rc != 0) return rc;
+    } else {
+        pthread_mutex_unlock(&g_mutex_open_cnt);
+    }
+
+    uint32_t size32 = (uint32_t)size;
+    size_t in_buf_size = sizeof(uint32_t) * 3 + size;
+    uint8_t* in_buf = (uint8_t*)malloc(in_buf_size);
+    if (!in_buf) return -ENOMEM;
+
+    memcpy(in_buf, &session_id, sizeof(uint32_t));
+    memcpy(in_buf + sizeof(uint32_t), &aif_id, sizeof(uint32_t));
+    memcpy(in_buf + sizeof(uint32_t) * 2, &size32, sizeof(uint32_t));
+    memcpy(in_buf + sizeof(uint32_t) * 3, payload, size);
+
+    uint8_t* out_buf = (uint8_t*)malloc(AGM_PROXY_MAX_MSG_SIZE);
+    if (!out_buf) {
+        free(in_buf);
+        return -ENOMEM;
+    }
+    uint32_t out_len = AGM_PROXY_MAX_MSG_SIZE;
+
+    int status = agm_send_ipc_msg(
+        g_agm_client,
+        AGM_MSG_TYPE_SET_SESSION_AIF_PARAM,
+        AGM_OP_SET_SESSION_AIF_PARAM,
+        in_buf, in_buf_size,
+        out_buf, &out_len
+    );
+
+    free(in_buf);
+    free(out_buf);
+
+    if (status != 0) {
+        AGM_LOGE("%s: agm_send_ipc_msg failed with status=%d\n", __func__, status);
+        return status;
+    }
+
+    AGM_LOGI("%s: session_id=%u, aif_id=%u, size=%zu - success\n",
+             __func__, session_id, aif_id, size);
+    return 0;
+}
 
 int agm_session_aif_get_tag_module_info(uint32_t session_id,
                                  uint32_t aif_id, void *payload, size_t *size) {return 0;}
