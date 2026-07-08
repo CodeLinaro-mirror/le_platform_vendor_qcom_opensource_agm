@@ -296,6 +296,8 @@ static void get_wma_pro_channel_map(uint8_t *channel_map, int channels, uint32_t
 
 static void get_default_channel_map(uint8_t *channel_map, int channels)
 {
+    int i = 0;
+
     switch (channels) {
     case CHANNEL_1:
          channel_map[0] = PCM_CHANNEL_C;
@@ -443,6 +445,19 @@ static void get_default_channel_map(uint8_t *channel_map, int channels)
          channel_map[30] = PCM_CHANNEL_LW;
          channel_map[31] = PCM_CHANNEL_RW;
          break;
+    case CHANNEL_64:
+        /* Reuse smaller default maps to avoid duplicating overlapping entries. */
+        get_default_channel_map(channel_map, CHANNEL_32);
+        channel_map[32] = PCM_CHANNEL_LSD;
+        channel_map[33] = PCM_CHANNEL_RSD;
+        for (i = 34; i < CHANNEL_64; i++)
+            channel_map[i] = PCM_CUSTOM_CHANNEL_MAP_17 + (i - 34);
+        break;
+    case CHANNEL_128:
+        get_default_channel_map(channel_map, CHANNEL_64);
+        for (i = CHANNEL_64; i < CHANNEL_128; i++)
+            channel_map[i] = PCM_CUSTOM_CHANNEL_MAP_31 + (i - CHANNEL_64);
+        break;
     default:
         AGM_LOGE("Unsupport channels: %d", channels);
     }
