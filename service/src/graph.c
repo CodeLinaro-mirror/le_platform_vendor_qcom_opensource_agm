@@ -1874,13 +1874,19 @@ done:
 size_t graph_get_hw_processed_buff_cnt(struct graph_obj *graph_obj,
                                        enum direction dir __unused)
 {
+    uint32_t cnt = 0;
+    int ret = 0;
     if (graph_obj == NULL) {
         AGM_LOGE("invalid graph object or null callback\n");
         return 0;
     }
-    /*TODO: Uncomment that call once platform moves to latest GSL release*/
-    return 2 /*gsl_get_processed_buff_cnt(graph_obj->graph_handle, dir)*/;
-
+    ret = gsl_get_processed_buff_cnt(graph_obj->graph_handle, dir, &cnt);
+    if(ret){
+      AGM_LOGE(" failed to gsl_get_processed_buff_cnt: ret: %d", ret);
+      return 0;
+    }
+    AGM_LOGD("gsl_get_processed_buff_cnt: %d", cnt);
+    return cnt;
 }
 
 int graph_eos(struct graph_obj *graph_obj)
