@@ -211,6 +211,12 @@ static void on_emit_signal_callback(GDBusConnection *conn,
     event_params_l = (struct agm_event_cb_params*) calloc(1,
                      (sizeof(struct agm_event_cb_params) +
                      event_params.event_payload_size));
+
+    if (event_params_l == NULL) {
+      AGM_LOGE("%s: Failed to allocate memory for event_params_l\n", __func__);
+      return;
+    }
+
     array_v = g_variant_iter_next_value(&arg_i);
     value = g_variant_get_fixed_array(array_v, &n_elements, element_size);
     memcpy(&event_params_l->event_payload[0], value, n_elements);
@@ -250,6 +256,7 @@ static void on_emit_ses_signal_callback(GDBusConnection *conn,
                         g_hash_table_lookup(mdata->ses_hash_table,
                                        GINT_TO_POINTER(session_id))) == NULL) {
         AGM_LOGE("%s: Invalid session id received\n", __func__);
+        return;
     }
 
     AGM_LOGD("Waking up session threads read/write = %d thread sts:%u, sid:%d\n",
@@ -501,6 +508,14 @@ static int agm_session_deregister_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = NULL;
@@ -617,6 +632,14 @@ int agm_session_register_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = cb;
@@ -2198,4 +2221,5 @@ exit:
 }
 
 int agm_deinit() {
+    return 0;
 }
