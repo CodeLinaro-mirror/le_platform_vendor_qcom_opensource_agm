@@ -461,6 +461,23 @@ struct agm_shmem_info {
 
 
 /**
+ * SSR event types raised to AGM clients
+ */
+enum agm_ssr_event_type
+{
+    AGM_SSR_EVENT_AUDIO_SVC_DN = 0, /**< Audio subsystem is going down (SSR) */
+    AGM_SSR_EVENT_AUDIO_SVC_UP,     /**< Audio subsystem is back up after SSR */
+};
+
+/**
+ * \brief Callback function signature for SSR events to AGM clients.
+ *
+ * \param[in] event_type - AGM_SSR_EVENT_AUDIO_SVC_DN or AGM_SSR_EVENT_AUDIO_SVC_UP
+ * \param[in] client_data - opaque client data set during callback registration.
+ */
+typedef void (*agm_ssr_cb)(enum agm_ssr_event_type event_type, void *client_data);
+
+/**
  * Event types
  */
 enum event_type
@@ -1128,6 +1145,32 @@ int agm_shmem_buf_free(uint32_t spf_mem_handle);
 
 int agm_register_service_crash_callback(agm_service_crash_cb cb,
                                          uint64_t cookie);
+
+/**
+  * \brief Register a callback to receive Audio Subsystem Restart (SSR)
+  *        UP and DOWN events from AGM.  AGM internally hooks into the
+  *        GSL global-event mechanism so callers do not need to interact
+  *        with GSL directly.
+  *
+  * \param[in] cb          - Callback to invoke on SSR events.
+  * \param[in] client_data - Opaque pointer returned verbatim in the callback.
+  *
+  * \return 0 on success, error code otherwise.
+  */
+int agm_register_ssr_cb(agm_ssr_cb cb, void *client_data);
+
+/**
+  * \brief Deregister a previously registered SSR callback.
+  *
+  *        The combination of (cb, client_data) must exactly match what
+  *        was passed to agm_register_ssr_cb().
+  *
+  * \param[in] cb          - Callback that was registered.
+  * \param[in] client_data - Opaque pointer that was registered.
+  *
+  * \return 0 on success, error code otherwise.
+  */
+int agm_deregister_ssr_cb(agm_ssr_cb cb, void *client_data);
 
 /**
   * \brief set gapless metadata of the session.
