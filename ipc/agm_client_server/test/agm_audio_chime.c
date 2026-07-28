@@ -71,7 +71,7 @@ static uint32_t g_record_time_sec = 10;  // Default recording time in seconds
 
 // New KV parameters
 static uint32_t g_device_kv = 0xA2000016;     // Default device KV (playback)
-static uint32_t g_devicepp_kv = 0xAC000002;   // Default devicepp KV (playback)
+static uint32_t g_devicepp_kv = 0;             // 0 = not provided; set via -dppkv
 static uint32_t g_stream_kv = 0xA1000001;     // Default stream KV (playback)
 static uint32_t g_vmid = 0xDD000001;          // PVM usecase
 static uint32_t g_instance_kv = 0;
@@ -162,9 +162,12 @@ static int create_stream_metadata(uint8_t **stream_data, uint32_t *stream_size, 
                                   g_sample_rate == 16000 ? SAMPLINGRATE_16K :
                                   g_sample_rate == 32000 ? SAMPLINGRATE_32K :
                                   g_sample_rate == 44100 ? SAMPLINGRATE_44K :
+                                  g_sample_rate == 96000 ? SAMPLINGRATE_96K :
                                                             SAMPLINGRATE_48K);
 
-    uint32_t bitwidth_val = (g_bits_per_sample == 24 ? BITWIDTH_24 : BITWIDTH_16);
+    uint32_t bitwidth_val = (g_bits_per_sample == 32 ? BITWIDTH_32 :
+                             g_bits_per_sample == 24 ? BITWIDTH_24 :
+                                                       BITWIDTH_16);
 
 
     uint32_t stream_meta[64];
@@ -214,8 +217,11 @@ static int create_device_metadata(uint8_t **device_data, uint32_t *device_size, 
                                   g_sample_rate == 16000 ? SAMPLINGRATE_16K :
                                   g_sample_rate == 32000 ? SAMPLINGRATE_32K :
                                   g_sample_rate == 44100 ? SAMPLINGRATE_44K :
+                                  g_sample_rate == 96000 ? SAMPLINGRATE_96K :
                                                             SAMPLINGRATE_48K);
-    uint32_t bitwidth_val = (g_bits_per_sample == 24 ? BITWIDTH_24 : BITWIDTH_16);
+    uint32_t bitwidth_val = (g_bits_per_sample == 32 ? BITWIDTH_32 :
+                             g_bits_per_sample == 24 ? BITWIDTH_24 :
+                                                       BITWIDTH_16);
 
     uint32_t dev_meta[] = {
         1,
@@ -527,7 +533,6 @@ int main(int argc, char **argv) {
             mode = strtoul(argv[i + 1], NULL, 0);
             if (mode == MODE_CAPTURE) {
                 g_device_kv = 0xA3000016;     // Default capture device KV
-                g_devicepp_kv = 0xAD000002;   // Default capture devicepp KV
                 g_stream_kv = 0xB1000001;     // Default capture stream KV
                 g_interface = "TDM-LPAIF_RXTX-TX-PRIMARY";  // Default capture interface
                 AGM_LOGE("MODE_CAPTURE");
@@ -647,6 +652,7 @@ int main(int argc, char **argv) {
     //get aif_info
     uint32_t aif_id = 0;
     uint8_t dir = 0;
+    int aif_connected = 0;
     ret = device_get_aif_info(g_interface, &aif_id, &dir);
 
     if (ret != 0) {
@@ -676,21 +682,28 @@ int main(int argc, char **argv) {
     ret = agm_aif_set_metadata(aif_id, device_size, device_data);
     free(device_data);
 
-    //device-pp metadata
-    uint8_t *devicepp_data = NULL; uint32_t devicepp_size = 0;
-    ret = create_devicepp_metadata(&devicepp_data, &devicepp_size, dir);
-    if (ret) { AGM_LOGE("create_devicepp_metadata failed: %d", ret);  goto cleanup; }
+    //device-pp metadata (only if -dppkv was explicitly provided)
+    if (g_devicepp_kv != 0) {
+        uint8_t *devicepp_data = NULL; uint32_t devicepp_size = 0;
+        ret = create_devicepp_metadata(&devicepp_data, &devicepp_size, dir);
+        if (ret) { AGM_LOGE("create_devicepp_metadata failed: %d", ret);  goto cleanup; }
 
-    AGM_LOGD("Calling agm_session_aif_set_metadata (device-PP): sid=%u aif_id=%u size=%u",
-             g_session_id, aif_id, devicepp_size);
-    ret = agm_session_aif_set_metadata(g_session_id, aif_id, devicepp_size, devicepp_data);
-    free(devicepp_data);
-    if (ret) { AGM_LOGE("agm_session_aif_set_metadata failed: %d", ret); goto cleanup; }
+        AGM_LOGD("Calling agm_session_aif_set_metadata (device-PP): sid=%u aif_id=%u size=%u",
+                 g_session_id, aif_id, devicepp_size);
+        ret = agm_session_aif_set_metadata(g_session_id, aif_id, devicepp_size, devicepp_data);
+        free(devicepp_data);
+        if (ret) { AGM_LOGE("agm_session_aif_set_metadata failed: %d", ret); goto cleanup; }
+    } else {
+        AGM_LOGI("Skipping device-PP metadata (no -dppkv provided)");
+    }
 
     struct agm_media_config media_cfg = {0};
     media_cfg.rate        = g_sample_rate;
     media_cfg.channels    = g_channels;
-    media_cfg.format      = 2;             //AGM_FORMAT_PCM_S16_LE
+    media_cfg.format      = (g_bits_per_sample == 32) ? AGM_FORMAT_PCM_S32_LE :
+                            (g_bits_per_sample == 24) ? AGM_FORMAT_PCM_S24_LE :
+                            (g_bits_per_sample ==  8) ? AGM_FORMAT_PCM_S8     :
+                                                        AGM_FORMAT_PCM_S16_LE;
     media_cfg.data_format = 1;
 
     ret = agm_aif_set_media_config(aif_id, &media_cfg);
@@ -700,6 +713,7 @@ int main(int argc, char **argv) {
     AGM_LOGD("Calling agm_session_aif_connect: sid=%u aif_id=%u connect=true", g_session_id, aif_id);
     ret = agm_session_aif_connect(g_session_id, aif_id, true);
     if (ret) { AGM_LOGE("agm_session_aif_connect failed: %d", ret); goto cleanup; }
+    aif_connected = 1;
 
 
     //session_open
@@ -749,6 +763,7 @@ int main(int argc, char **argv) {
     // Cleanup
 cleanup:
     AGM_LOGI("enter cleanup");
+    if (aif_connected) agm_session_aif_connect(g_session_id, aif_id, false);
     if (g_handle) agm_session_close(g_handle);
     if (g_audio_buf) free(g_audio_buf);
     if (file) fclose(file);
