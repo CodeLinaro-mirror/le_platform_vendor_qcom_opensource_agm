@@ -70,6 +70,13 @@ AC_ARG_WITH([glib],
       AC_HELP_STRING([--with-glib],
          [enable glib, Build against glib. Use this when building for HLOS systems which use glib]))
 
+# Optional ALSALIB build support
+AC_ARG_ENABLE([alsalib],
+  [AS_HELP_STRING([--enable-alsalib], [Enable ALSA AGM plug-in build (default: no)])],
+  [enable_alsalib=$enableval],
+  [enable_alsalib=no])
+AM_CONDITIONAL([BUILD_ALSALIB], [test "x$enable_alsalib" = "xyes"])
+
 if (test "x${with_glib}" = "xyes"); then
         PKG_CHECK_MODULES(GTHREAD, gthread-2.0 >= 2.16, dummy=yes,
                                 AC_MSG_ERROR(GThread >= 2.16 is required))
@@ -124,6 +131,8 @@ plugins/tinyalsa/Makefile
 plugins/tinyalsa/agmplugin.pc
 plugins/tinyalsa/test/Makefile
 plugins/tinyalsa/test/agmtest.pc
+plugins/alsalib/Makefile
+plugins/alsalib/agmalsaplugin.pc
 )
 
 AC_OUTPUT
