@@ -317,7 +317,7 @@ int graph_get_config(struct graph_obj *graph_obj, void *payload,
 int graph_set_cal(struct graph_obj *gph_obj,
                               struct agm_meta_data_gsl *meta_data);
 
-int graph_rw_acdb_param(void *payload, bool is_param_write);
+int graph_rw_acdb_param(void *payload, size_t payload_size, bool is_param_write);
 
 /**
  *\brief Issue eos to the associated graph

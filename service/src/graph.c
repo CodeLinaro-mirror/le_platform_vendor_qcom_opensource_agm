@@ -1202,7 +1202,60 @@ int graph_set_cal(struct graph_obj *graph_obj,
      return ret;
 }
 
-int graph_rw_acdb_param(void *payload, bool is_param_write)
+static int validate_acdb_tunnel_payload(struct agm_acdb_tunnel_param *payload_info,
+                                        size_t payload_size,
+                                        size_t *kv_bytes,
+                                        size_t *param_payload_size)
+{
+    size_t gkv_bytes = 0;
+    size_t ckv_tkv_bytes = 0;
+    size_t blob_required = 0;
+    size_t total_required = 0;
+
+    if (!payload_info || !kv_bytes || !param_payload_size) {
+        AGM_LOGE("invalid payload validation params");
+        return -EINVAL;
+    }
+
+    if (payload_size < sizeof(*payload_info)) {
+        AGM_LOGE("payload size %zu too small", payload_size);
+        return -EINVAL;
+    }
+
+    if (__builtin_mul_overflow((size_t)payload_info->num_gkvs,
+                               sizeof(struct agm_key_value), &gkv_bytes) ||
+        __builtin_mul_overflow((size_t)payload_info->num_kvs,
+                               sizeof(struct agm_key_value), &ckv_tkv_bytes) ||
+        __builtin_add_overflow(gkv_bytes, ckv_tkv_bytes, &blob_required)) {
+        AGM_LOGE("kv size overflow num_gkvs=%u num_kvs=%u",
+                 payload_info->num_gkvs, payload_info->num_kvs);
+        return -EINVAL;
+    }
+
+    if (payload_info->blob_size < blob_required) {
+        AGM_LOGE("blob_size(%u) smaller than kv bytes(%zu)",
+                 payload_info->blob_size, blob_required);
+        return -EINVAL;
+    }
+
+    if (__builtin_add_overflow(sizeof(*payload_info),
+                               (size_t)payload_info->blob_size, &total_required) ||
+        total_required > payload_size) {
+        AGM_LOGE("payload truncation: need=%zu got=%zu", total_required, payload_size);
+        return -EINVAL;
+    }
+
+    *kv_bytes = blob_required;
+    *param_payload_size = payload_info->blob_size - blob_required;
+    if (*param_payload_size < sizeof(struct apm_module_param_data_t)) {
+        AGM_LOGE("param payload too small: %zu", *param_payload_size);
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int graph_rw_acdb_param(void *payload, size_t payload_size, bool is_param_write)
 {
     int ret = 0;
     struct agm_acdb_tunnel_param *payloadACDBTunnelInfo = NULL;
@@ -1210,6 +1263,7 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
     uint32_t *ptr = NULL;
     uint8_t *ptr_to_param = NULL;
     size_t actual_size = 0;
+    size_t kv_blob_size = 0;
     uint32_t tag = 0;
     uint32_t miid = 0;
     struct agm_key_vector_gsl gkv = {0, NULL};
@@ -1218,8 +1272,10 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
     size_t size = 0;
     struct gsl_tag_module_info *tag_info;
     struct gsl_tag_module_info_entry *tag_entry;
-    uint32_t offset = 0, temp_sum = 0;
-    uint32_t total_parsed_size = 0;
+    size_t offset = 0;
+    size_t total_parsed_size = 0;
+    size_t entry_size = 0;
+    size_t remaining_size = 0;
     uint8_t tag_pool[TAGGED_MOD_SIZE_BYTES] = { 0 };
 
     AGM_LOGD("enter");
@@ -1230,6 +1286,13 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
     }
 
     payloadACDBTunnelInfo = (struct agm_acdb_tunnel_param *)payload;
+    ret = validate_acdb_tunnel_payload(payloadACDBTunnelInfo, payload_size,
+                                       &kv_blob_size, &actual_size);
+    if (ret) {
+        AGM_LOGE("invalid acdb tunnel payload");
+        return ret;
+    }
+
     AGM_LOGD("istkv=%x num_gkvs=0x%x num_kvs=0x%x blob_size=0x%x",
         payloadACDBTunnelInfo->isTKV,
         payloadACDBTunnelInfo->num_gkvs,
@@ -1241,8 +1304,7 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
         AGM_LOGV("%d data = 0x%x", i, *ptr++);
     }
 
-    ptr = (uint32_t *)(payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
-            (payloadACDBTunnelInfo->num_gkvs + payloadACDBTunnelInfo->num_kvs));
+    ptr = (uint32_t *)(payloadACDBTunnelInfo->blob + kv_blob_size);
     header = (struct apm_module_param_data_t *)ptr;
     ptr_to_param = (uint8_t *)header;
 
@@ -1255,13 +1317,13 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
 
     ret = gsl_get_tags_with_module_info((const struct gsl_key_vector *)&gkv, NULL, &size);
     if (ret) {
-        AGM_LOGE("failed to get tag info size = %d size=0x%x", ret, size);
+        AGM_LOGE("failed to get tag info size = %d size=0x%zx", ret, size);
         return ret;
     }
 
     ret = gsl_get_tags_with_module_info((const struct gsl_key_vector *)&gkv, tag_pool, &size);
     if (ret) {
-        AGM_LOGE("failed to get tag pool ret = %d size=0x%x", ret, size);
+        AGM_LOGE("failed to get tag pool ret = %d size=0x%zx", ret, size);
         return ret;
     }
 
@@ -1300,11 +1362,7 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
         payloadACDBTunnelInfo->num_gkvs * sizeof(struct agm_key_value));
 
     AGM_LOGD("blob size = %d", payloadACDBTunnelInfo->blob_size);
-    __builtin_add_overflow(payloadACDBTunnelInfo->num_gkvs * sizeof(struct agm_key_value),
-            payloadACDBTunnelInfo->num_kvs * sizeof(struct agm_key_value),
-            &temp_sum);
-    __builtin_sub_overflow(payloadACDBTunnelInfo->blob_size, temp_sum, &actual_size);
-    AGM_LOGD("actual size = 0x%x", actual_size);
+    AGM_LOGD("actual size = 0x%zx", actual_size);
     AGM_LOGI("num kvs = %d", kv.num_kvs);
     ptr = (uint32_t *)kv.kv;
     for (i = 0; i < kv.num_kvs; i++) {
@@ -1313,18 +1371,39 @@ int graph_rw_acdb_param(void *payload, bool is_param_write)
     }
 
     // for multiple param, we have to fill the miid in each line item.
-    offset = sizeof(struct apm_module_param_data_t) + header->param_size;
-    ALIGN_PAYLOAD(offset, 8);
-    total_parsed_size = offset;
-    while (total_parsed_size < actual_size) {
-        AGM_LOGI("multiple param: offset=0x%x", offset);
-        header = (struct apm_module_param_data_t*)((uint8_t *)header + offset);
+    total_parsed_size = 0;
+    remaining_size = actual_size;
+    header = (struct apm_module_param_data_t *)ptr_to_param;
+    while (remaining_size > 0) {
+        if (remaining_size < sizeof(struct apm_module_param_data_t)) {
+            AGM_LOGE("truncated param header: remaining=%zu", remaining_size);
+            return -EINVAL;
+        }
+
         header->module_instance_id = miid;
-        offset = sizeof(struct apm_module_param_data_t) + header->param_size;
-        ALIGN_PAYLOAD(offset, 8);
-        total_parsed_size += offset;
-        AGM_LOGI("total parsed size=0x%x param_size=0x%x offset=0x%x",
-            total_parsed_size, header->param_size, offset);
+        if (__builtin_add_overflow(sizeof(struct apm_module_param_data_t),
+                                   (size_t)header->param_size, &entry_size)) {
+            AGM_LOGE("param entry size overflow");
+            return -EINVAL;
+        }
+        ALIGN_PAYLOAD(entry_size, 8);
+        if (entry_size == 0 || entry_size > remaining_size) {
+            AGM_LOGE("invalid param entry size=%zu remaining=%zu",
+                     entry_size, remaining_size);
+            return -EINVAL;
+        }
+
+        total_parsed_size += entry_size;
+        remaining_size -= entry_size;
+        AGM_LOGI("total parsed size=0x%zx param_size=0x%x offset=0x%zx",
+            total_parsed_size, header->param_size, entry_size);
+        if (remaining_size == 0) {
+            break;
+        }
+
+        offset = entry_size;
+        AGM_LOGI("multiple param: offset=0x%zx", offset);
+        header = (struct apm_module_param_data_t *)((uint8_t *)header + offset);
     }
 
     ptr = (uint32_t *)ptr_to_param;
