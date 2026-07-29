@@ -490,20 +490,21 @@ int agm_get_params_from_acdb_tunnel(void *payload, size_t *size)
 {
     int ret = 0;
     struct agm_acdb_tunnel_param *payloadACDBTunnelInfo = NULL;
-    uint32_t k = 0;
-    uint32_t *ptr = NULL;
-    uint32_t tag = 0;
-    struct agm_key_vector_gsl gkv = {0, NULL};
 
     AGM_LOGD("enter\n");
 
-    if (!payload) {
+    if (!payload || !size) {
         AGM_LOGE("payload is nullptr");
         return -EINVAL;
     }
 
+    if (*size < sizeof(struct agm_acdb_tunnel_param)) {
+        AGM_LOGE("payload size %zu too small", *size);
+        return -EINVAL;
+    }
+
     payloadACDBTunnelInfo = (struct agm_acdb_tunnel_param *)payload;
-    AGM_LOGD("payload size is 0x%x", *size);
+    AGM_LOGD("payload size is 0x%zx", *size);
     AGM_LOGD("tag=%x istkv=%x num_gkvs=0x%x num_kvs=0x%x blob_size=0x%x",
         payloadACDBTunnelInfo->tag,
         payloadACDBTunnelInfo->isTKV,
@@ -511,20 +512,7 @@ int agm_get_params_from_acdb_tunnel(void *payload, size_t *size)
         payloadACDBTunnelInfo->num_kvs,
         payloadACDBTunnelInfo->blob_size);
 
-    ptr = (uint32_t *)payloadACDBTunnelInfo->blob;
-    for (k = 0; k < payloadACDBTunnelInfo->blob_size / 4; k++) {
-        AGM_LOGV("%d data = 0x%x", k, *ptr++);
-    }
-
-    ptr = (uint32_t *)(payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
-            (payloadACDBTunnelInfo->num_gkvs + payloadACDBTunnelInfo->num_kvs));
-    // tag is stored at miid. Convertion happens next.
-    AGM_LOGI("tag = 0x%x", *ptr);
-
-    gkv.num_kvs = payloadACDBTunnelInfo->num_gkvs;
-    gkv.kv = (struct agm_key_value *)payloadACDBTunnelInfo->blob;
-
-    ret = session_dummy_rw_acdb_tunnel(payload, false);
+    ret = session_dummy_rw_acdb_tunnel(payload, *size, false);
     if (ret) {
          AGM_LOGE("Error get tag list");
          goto error;
@@ -712,9 +700,6 @@ int agm_set_params_to_acdb_tunnel(void *payload, size_t size)
 {
     int ret = 0;
     struct agm_acdb_tunnel_param *payloadACDBTunnelInfo = NULL;
-    uint32_t k = 0;
-    uint32_t *ptr = NULL;
-    uint32_t tag = 0;
 
     AGM_LOGD("enter\n");
 
@@ -722,9 +707,13 @@ int agm_set_params_to_acdb_tunnel(void *payload, size_t size)
         AGM_LOGE("payload is nullptr");
         return -EINVAL;
     }
+    if (size < sizeof(struct agm_acdb_tunnel_param)) {
+        AGM_LOGE("payload size %zu too small", size);
+        return -EINVAL;
+    }
 
     payloadACDBTunnelInfo = (struct agm_acdb_tunnel_param *)payload;
-    AGM_LOGD("payload size is 0x%x", size);
+    AGM_LOGD("payload size is 0x%zx", size);
     AGM_LOGD("tag=%x istkv=%x num_gkvs=0x%x num_kvs=0x%x blob_size=0x%x",
         payloadACDBTunnelInfo->tag,
         payloadACDBTunnelInfo->isTKV,
@@ -732,17 +721,7 @@ int agm_set_params_to_acdb_tunnel(void *payload, size_t size)
         payloadACDBTunnelInfo->num_kvs,
         payloadACDBTunnelInfo->blob_size);
 
-    ptr = (uint32_t *)payloadACDBTunnelInfo->blob;
-    for (k = 0; k < payloadACDBTunnelInfo->blob_size / 4; k++) {
-        AGM_LOGV("%d data = 0x%x", k, *ptr++);
-    }
-
-    ptr = (uint32_t *)(payloadACDBTunnelInfo->blob + sizeof(struct agm_key_value) *
-            (payloadACDBTunnelInfo->num_gkvs + payloadACDBTunnelInfo->num_kvs));
-    // tag is stored at miid. Convertion happens next.
-    AGM_LOGI("tag = 0x%x", *ptr);
-
-    ret = session_dummy_rw_acdb_tunnel(payload, true);
+    ret = session_dummy_rw_acdb_tunnel(payload, size, true);
     if (ret) {
          AGM_LOGE("Error get tag list");
          goto error;
