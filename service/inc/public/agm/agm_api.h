@@ -158,7 +158,7 @@ enum agm_session_mode
 };
 
 struct agm_extern_alloc_buff_info{
-    int      alloc_handle;/**< unique handle identifying extern mem allocation */
+    uint64_t alloc_handle;/**< unique handle identifying extern mem allocation */
     uint32_t alloc_size;  /**< size of external allocation */
     uint32_t offset;      /**< offset of buffer within extern allocation */
 };
