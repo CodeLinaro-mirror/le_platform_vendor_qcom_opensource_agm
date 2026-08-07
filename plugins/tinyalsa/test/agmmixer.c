@@ -2137,7 +2137,6 @@ int agm_mixer_set_param(struct mixer *mixer, int device,
     ctl_len = strlen(stream) + 4 + strlen(control) + 1;
     mixer_str = calloc(1, ctl_len);
     if (!mixer_str) {
-        free(payload);
         return -ENOMEM;
     }
     snprintf(mixer_str, ctl_len, "%s%d %s", stream, device, control);
