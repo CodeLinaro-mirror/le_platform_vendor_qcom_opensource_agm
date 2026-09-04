@@ -296,6 +296,8 @@ static void get_wma_pro_channel_map(uint8_t *channel_map, int channels, uint32_t
 
 static void get_default_channel_map(uint8_t *channel_map, int channels)
 {
+    int i = 0;
+
     switch (channels) {
     case CHANNEL_1:
          channel_map[0] = PCM_CHANNEL_C;
@@ -443,6 +445,84 @@ static void get_default_channel_map(uint8_t *channel_map, int channels)
          channel_map[30] = PCM_CHANNEL_LW;
          channel_map[31] = PCM_CHANNEL_RW;
          break;
+    case CHANNEL_63:
+        channel_map[0] = PCM_CHANNEL_L;
+        channel_map[1] = PCM_CHANNEL_R;
+        channel_map[2] = PCM_CHANNEL_C;
+        channel_map[3] = PCM_CHANNEL_LS;
+        channel_map[4] = PCM_CHANNEL_RS;
+        channel_map[5] = PCM_CHANNEL_LFE;
+        channel_map[6] = PCM_CHANNEL_CS;
+        channel_map[7] = PCM_CHANNEL_LB;
+        channel_map[8] = PCM_CHANNEL_RB;
+        channel_map[9] = PCM_CHANNEL_TS;
+        channel_map[10] = PCM_CHANNEL_CVH;
+        channel_map[11] = PCM_CHANNEL_MS;
+        channel_map[12] = PCM_CHANNEL_FLC;
+        channel_map[13] = PCM_CHANNEL_FRC;
+        channel_map[14] = PCM_CHANNEL_RLC;
+        channel_map[15] = PCM_CHANNEL_RRC;
+        channel_map[16] = PCM_CHANNEL_LFE2;
+        channel_map[17] = PCM_CHANNEL_SL;
+        channel_map[18] = PCM_CHANNEL_SR;
+        channel_map[19] = PCM_CHANNEL_TFL;
+        channel_map[20] = PCM_CHANNEL_TFR;
+        channel_map[21] = PCM_CHANNEL_TC;
+        channel_map[22] = PCM_CHANNEL_TBL;
+        channel_map[23] = PCM_CHANNEL_TBR;
+        channel_map[24] = PCM_CHANNEL_TSL;
+        channel_map[25] = PCM_CHANNEL_TSR;
+        channel_map[26] = PCM_CHANNEL_TBC;
+        channel_map[27] = PCM_CHANNEL_BFC;
+        channel_map[28] = PCM_CHANNEL_BFL;
+        channel_map[29] = PCM_CHANNEL_BFR;
+        channel_map[30] = PCM_CHANNEL_LW;
+        channel_map[31] = PCM_CHANNEL_RW;
+        channel_map[32] = PCM_CHANNEL_LSD;
+        channel_map[33] = PCM_CHANNEL_RSD;
+        channel_map[34] = PCM_CUSTOM_CHANNEL_MAP_17;
+        channel_map[35] = PCM_CUSTOM_CHANNEL_MAP_18;
+        channel_map[36] = PCM_CUSTOM_CHANNEL_MAP_19;
+        channel_map[37] = PCM_CUSTOM_CHANNEL_MAP_20;
+        channel_map[38] = PCM_CUSTOM_CHANNEL_MAP_21;
+        channel_map[39] = PCM_CUSTOM_CHANNEL_MAP_22;
+        channel_map[40] = PCM_CUSTOM_CHANNEL_MAP_23;
+        channel_map[41] = PCM_CUSTOM_CHANNEL_MAP_24;
+        channel_map[42] = PCM_CUSTOM_CHANNEL_MAP_25;
+        channel_map[43] = PCM_CUSTOM_CHANNEL_MAP_26;
+        channel_map[44] = PCM_CUSTOM_CHANNEL_MAP_27;
+        channel_map[45] = PCM_CUSTOM_CHANNEL_MAP_28;
+        channel_map[46] = PCM_CUSTOM_CHANNEL_MAP_29;
+        channel_map[47] = PCM_CUSTOM_CHANNEL_MAP_1;
+        channel_map[48] = PCM_CUSTOM_CHANNEL_MAP_2;
+        channel_map[49] = PCM_CUSTOM_CHANNEL_MAP_3;
+        channel_map[50] = PCM_CUSTOM_CHANNEL_MAP_4;
+        channel_map[51] = PCM_CUSTOM_CHANNEL_MAP_5;
+        channel_map[52] = PCM_CUSTOM_CHANNEL_MAP_6;
+        channel_map[53] = PCM_CUSTOM_CHANNEL_MAP_7;
+        channel_map[54] = PCM_CUSTOM_CHANNEL_MAP_8;
+        channel_map[55] = PCM_CUSTOM_CHANNEL_MAP_9;
+        channel_map[56] = PCM_CUSTOM_CHANNEL_MAP_10;
+        channel_map[57] = PCM_CUSTOM_CHANNEL_MAP_11;
+        channel_map[58] = PCM_CUSTOM_CHANNEL_MAP_12;
+        channel_map[59] = PCM_CUSTOM_CHANNEL_MAP_13;
+        channel_map[60] = PCM_CUSTOM_CHANNEL_MAP_14;
+        channel_map[61] = PCM_CUSTOM_CHANNEL_MAP_15;
+        channel_map[62] = PCM_CUSTOM_CHANNEL_MAP_16;
+        break;
+    case CHANNEL_64:
+        /* Reuse smaller default maps to avoid duplicating overlapping entries. */
+        get_default_channel_map(channel_map, CHANNEL_32);
+        channel_map[32] = PCM_CHANNEL_LSD;
+        channel_map[33] = PCM_CHANNEL_RSD;
+        for (i = 34; i < CHANNEL_64; i++)
+            channel_map[i] = PCM_CUSTOM_CHANNEL_MAP_17 + (i - 34);
+        break;
+    case CHANNEL_128:
+        get_default_channel_map(channel_map, CHANNEL_64);
+        for (i = CHANNEL_64; i < CHANNEL_128; i++)
+            channel_map[i] = PCM_CUSTOM_CHANNEL_MAP_31 + (i - CHANNEL_64);
+        break;
     default:
         AGM_LOGE("Unsupport channels: %d", channels);
     }
@@ -597,6 +677,71 @@ static void get_default_channel_map_v2(uint16_t *channel_map, int channels)
          channel_map[30] = PCM_CHANNEL_LW;
          channel_map[31] = PCM_CHANNEL_RW;
          break;
+    case CHANNEL_63:
+        channel_map[0] = PCM_CHANNEL_L;
+        channel_map[1] = PCM_CHANNEL_R;
+        channel_map[2] = PCM_CHANNEL_C;
+        channel_map[3] = PCM_CHANNEL_LS;
+        channel_map[4] = PCM_CHANNEL_RS;
+        channel_map[5] = PCM_CHANNEL_LFE;
+        channel_map[6] = PCM_CHANNEL_CS;
+        channel_map[7] = PCM_CHANNEL_LB;
+        channel_map[8] = PCM_CHANNEL_RB;
+        channel_map[9] = PCM_CHANNEL_TS;
+        channel_map[10] = PCM_CHANNEL_CVH;
+        channel_map[11] = PCM_CHANNEL_MS;
+        channel_map[12] = PCM_CHANNEL_FLC;
+        channel_map[13] = PCM_CHANNEL_FRC;
+        channel_map[14] = PCM_CHANNEL_RLC;
+        channel_map[15] = PCM_CHANNEL_RRC;
+        channel_map[16] = PCM_CHANNEL_LFE2;
+        channel_map[17] = PCM_CHANNEL_SL;
+        channel_map[18] = PCM_CHANNEL_SR;
+        channel_map[19] = PCM_CHANNEL_TFL;
+        channel_map[20] = PCM_CHANNEL_TFR;
+        channel_map[21] = PCM_CHANNEL_TC;
+        channel_map[22] = PCM_CHANNEL_TBL;
+        channel_map[23] = PCM_CHANNEL_TBR;
+        channel_map[24] = PCM_CHANNEL_TSL;
+        channel_map[25] = PCM_CHANNEL_TSR;
+        channel_map[26] = PCM_CHANNEL_TBC;
+        channel_map[27] = PCM_CHANNEL_BFC;
+        channel_map[28] = PCM_CHANNEL_BFL;
+        channel_map[29] = PCM_CHANNEL_BFR;
+        channel_map[30] = PCM_CHANNEL_LW;
+        channel_map[31] = PCM_CHANNEL_RW;
+        channel_map[32] = PCM_CHANNEL_LSD;
+        channel_map[33] = PCM_CHANNEL_RSD;
+        channel_map[34] = PCM_CUSTOM_CHANNEL_MAP_17;
+        channel_map[35] = PCM_CUSTOM_CHANNEL_MAP_18;
+        channel_map[36] = PCM_CUSTOM_CHANNEL_MAP_19;
+        channel_map[37] = PCM_CUSTOM_CHANNEL_MAP_20;
+        channel_map[38] = PCM_CUSTOM_CHANNEL_MAP_21;
+        channel_map[39] = PCM_CUSTOM_CHANNEL_MAP_22;
+        channel_map[40] = PCM_CUSTOM_CHANNEL_MAP_23;
+        channel_map[41] = PCM_CUSTOM_CHANNEL_MAP_24;
+        channel_map[42] = PCM_CUSTOM_CHANNEL_MAP_25;
+        channel_map[43] = PCM_CUSTOM_CHANNEL_MAP_26;
+        channel_map[44] = PCM_CUSTOM_CHANNEL_MAP_27;
+        channel_map[45] = PCM_CUSTOM_CHANNEL_MAP_28;
+        channel_map[46] = PCM_CUSTOM_CHANNEL_MAP_29;
+        channel_map[47] = PCM_CUSTOM_CHANNEL_MAP_1;
+        channel_map[48] = PCM_CUSTOM_CHANNEL_MAP_2;
+        channel_map[49] = PCM_CUSTOM_CHANNEL_MAP_3;
+        channel_map[50] = PCM_CUSTOM_CHANNEL_MAP_4;
+        channel_map[51] = PCM_CUSTOM_CHANNEL_MAP_5;
+        channel_map[52] = PCM_CUSTOM_CHANNEL_MAP_6;
+        channel_map[53] = PCM_CUSTOM_CHANNEL_MAP_7;
+        channel_map[54] = PCM_CUSTOM_CHANNEL_MAP_8;
+        channel_map[55] = PCM_CUSTOM_CHANNEL_MAP_9;
+        channel_map[56] = PCM_CUSTOM_CHANNEL_MAP_10;
+        channel_map[57] = PCM_CUSTOM_CHANNEL_MAP_11;
+        channel_map[58] = PCM_CUSTOM_CHANNEL_MAP_12;
+        channel_map[59] = PCM_CUSTOM_CHANNEL_MAP_13;
+        channel_map[60] = PCM_CUSTOM_CHANNEL_MAP_14;
+        channel_map[61] = PCM_CUSTOM_CHANNEL_MAP_15;
+        channel_map[62] = PCM_CUSTOM_CHANNEL_MAP_16;
+        break;
     case CHANNEL_64:
         channel_map[0] = PCM_CHANNEL_L;
         channel_map[1] = PCM_CHANNEL_R;
