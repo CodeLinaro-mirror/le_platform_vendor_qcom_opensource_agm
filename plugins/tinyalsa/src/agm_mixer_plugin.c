@@ -26,9 +26,9 @@
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
-** Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
-** SPDX-License-Identifier: BSD-3-Clause-Clear
+** Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+** SPDX-License-Identifier: BSD-3-Clause
 **/
 
 /* agm_mixer.c all names (variable/functions) should have
@@ -92,11 +92,19 @@ static char *amp_be_ctl_name_extn[] = {
 enum {
     STATIC_CTL_SET_ACDB_TUNNEL = 0,
     STATIC_CTL_GET_ACDB_TUNNEL,
+    STATIC_CTL_SHMEM_ALLOC,
+    STATIC_CTL_SHMEM_FREE,
+    STATIC_CTL_SET_PARAM_SHMEM_TAG,
+    STATIC_CTL_GET_PARAM_TAG,
 };
 
 static char *static_acdb_ctl_name_extn[] = {
     "setACDBTunnel",
     "getACDBTunnel",
+    "ShmemAlloc",
+    "ShmemFree",
+    "setParamShmemTag",
+    "getParamTag",
 };
 
 enum {
@@ -228,6 +236,9 @@ struct amp_priv {
 
     mixer_event_callback event_cb;
     pthread_mutex_t lock;
+
+    struct amp_get_param_info shmem_alloc_info;
+    struct amp_get_param_info get_param_tag_info;
 };
 
 struct event_params_node {
@@ -1826,6 +1837,198 @@ static int amp_pcm_shmem_free_put(struct mixer_plugin *plugin __unused,
 }
 
 
+static void amp_free_get_param_info(struct amp_get_param_info *info)
+{
+    if (!info)
+        return;
+
+    free(info->get_param_payload);
+    info->get_param_payload = NULL;
+    info->get_param_payload_size = 0;
+}
+
+static int amp_store_tlv_payload(struct amp_get_param_info *info,
+                struct snd_ctl_tlv *tlv)
+{
+    void *payload;
+
+    if (!info || !tlv || tlv->length == 0)
+        return -EINVAL;
+
+    payload = &tlv->tlv[0];
+    if (!payload)
+        return -EINVAL;
+
+    amp_free_get_param_info(info);
+
+    info->get_param_payload = calloc(1, tlv->length);
+    if (!info->get_param_payload)
+        return -ENOMEM;
+
+    memcpy(info->get_param_payload, payload, tlv->length);
+    info->get_param_payload_size = tlv->length;
+
+    return 0;
+}
+
+static int amp_shmem_alloc_put(struct mixer_plugin *plugin,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    struct amp_priv *amp_priv = plugin->priv;
+
+    return amp_store_tlv_payload(&amp_priv->shmem_alloc_info, tlv);
+}
+
+static int amp_shmem_alloc_get(struct mixer_plugin *plugin,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    struct amp_priv *amp_priv = plugin->priv;
+    struct agm_shmem_info *buf_info;
+    void *payload;
+    int ret;
+
+    if (!tlv || tlv->length < sizeof(*buf_info) ||
+        !amp_priv->shmem_alloc_info.get_param_payload ||
+        amp_priv->shmem_alloc_info.get_param_payload_size < sizeof(*buf_info))
+        return -EINVAL;
+
+    payload = &tlv->tlv[0];
+    if (!payload)
+        return -EINVAL;
+
+    memcpy(payload, amp_priv->shmem_alloc_info.get_param_payload,
+           sizeof(*buf_info));
+    buf_info = (struct agm_shmem_info *)payload;
+
+    ret = agm_shmem_buf_alloc(buf_info);
+    if (ret)
+        AGM_LOGE("%s: agm_shmem_buf_alloc failed %d size %u cache %u\n",
+                 __func__, ret, buf_info->size, buf_info->cache);
+
+    amp_free_get_param_info(&amp_priv->shmem_alloc_info);
+    return ret;
+}
+
+static int amp_shmem_free_get(struct mixer_plugin *plugin __unused,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv __unused)
+{
+    return 0;
+}
+
+static int amp_shmem_free_put(struct mixer_plugin *plugin __unused,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    uint32_t *spf_mem_handle;
+    void *payload;
+    int ret;
+
+    if (!tlv || tlv->length < sizeof(*spf_mem_handle))
+        return -EINVAL;
+
+    payload = &tlv->tlv[0];
+    if (!payload)
+        return -EINVAL;
+
+    spf_mem_handle = (uint32_t *)payload;
+    ret = agm_shmem_buf_free(*spf_mem_handle);
+    if (ret)
+        AGM_LOGE("%s: agm_shmem_buf_free failed %d handle 0x%x\n",
+                 __func__, ret, *spf_mem_handle);
+
+    return ret;
+}
+
+static int amp_set_param_shmem_tag_get(struct mixer_plugin *plugin __unused,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv __unused)
+{
+    return 0;
+}
+
+static int amp_set_param_shmem_tag_put(struct mixer_plugin *plugin __unused,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    struct agm_tagged_shmem_config *cfg;
+    void *payload;
+    int ret;
+
+    if (!tlv || tlv->length < sizeof(*cfg))
+        return -EINVAL;
+
+    payload = &tlv->tlv[0];
+    if (!payload)
+        return -EINVAL;
+
+    cfg = (struct agm_tagged_shmem_config *)payload;
+    if ((cfg->num_gkvs == 0) || (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS) ||
+        (tlv->length < AGM_TAGGED_SHMEM_CONFIG_SIZE(cfg->num_gkvs)))
+        return -EINVAL;
+
+    ret = agm_set_params_with_shmem_by_tag(cfg);
+    if (ret)
+        AGM_LOGE("%s: agm_set_params_with_shmem_by_tag failed %d tag 0x%x handle 0x%x\n",
+                 __func__, ret, cfg->tag_id, cfg->spf_mem_handle);
+
+    return ret;
+}
+
+static int amp_get_param_tag_put(struct mixer_plugin *plugin,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    struct amp_priv *amp_priv = plugin->priv;
+
+    return amp_store_tlv_payload(&amp_priv->get_param_tag_info, tlv);
+}
+
+static int amp_get_param_tag_get(struct mixer_plugin *plugin,
+                struct snd_control *ctl __unused, struct snd_ctl_tlv *tlv)
+{
+    struct amp_priv *amp_priv = plugin->priv;
+    struct amp_get_param_info *info = &amp_priv->get_param_tag_info;
+    struct agm_tagged_get_config *cfg;
+    size_t cfg_size;
+    uint32_t payload_size;
+    uint8_t *payload;
+    size_t rsp_size;
+    int ret = -EINVAL;
+
+    if (!tlv || tlv->length <= sizeof(*cfg) ||
+        !info->get_param_payload ||
+        info->get_param_payload_size <= sizeof(*cfg))
+        goto done;
+
+    if (tlv->length < info->get_param_payload_size)
+        goto done;
+
+    payload = (uint8_t *)&tlv->tlv[0];
+    if (!payload)
+        goto done;
+
+    memcpy(payload, info->get_param_payload,
+           info->get_param_payload_size);
+    cfg = (struct agm_tagged_get_config *)payload;
+    if ((cfg->num_gkvs == 0) || (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS))
+        goto done;
+
+    cfg_size = AGM_TAGGED_GET_CONFIG_SIZE(cfg->num_gkvs);
+    if (info->get_param_payload_size <= cfg_size)
+        goto done;
+
+    payload_size = info->get_param_payload_size - cfg_size;
+    rsp_size = payload_size;
+    ret = agm_get_params_with_tag(cfg, payload + cfg_size, &rsp_size);
+    if (ret) {
+        AGM_LOGE("%s: agm_get_params_with_tag failed %d tag 0x%x\n",
+                 __func__, ret, cfg->tag_id);
+        goto done;
+    }
+
+    tlv->length = cfg_size + rsp_size;
+
+done:
+    amp_free_get_param_info(info);
+    return ret;
+}
+
 static int amp_pcm_write_datapath_params_get(struct mixer_plugin *plugin __unused,
                 struct snd_control *ctl __unused, struct snd_ctl_elem_value *ev __unused)
 {
@@ -1894,6 +2097,14 @@ static struct snd_value_tlv_bytes pcm_getparam_bytes =
     SND_VALUE_TLV_BYTES(128 * 1024, amp_pcm_get_param_get, amp_pcm_get_param_put);
 static struct snd_value_tlv_bytes pcm_event_bytes =
     SND_VALUE_TLV_BYTES(128 * 1024, amp_pcm_event_get, amp_pcm_event_put);
+static struct snd_value_tlv_bytes shmem_alloc_bytes =
+    SND_VALUE_TLV_BYTES(1024, amp_shmem_alloc_get, amp_shmem_alloc_put);
+static struct snd_value_tlv_bytes shmem_free_bytes =
+    SND_VALUE_TLV_BYTES(1024, amp_shmem_free_get, amp_shmem_free_put);
+static struct snd_value_tlv_bytes set_param_shmem_tag_bytes =
+    SND_VALUE_TLV_BYTES(1024, amp_set_param_shmem_tag_get, amp_set_param_shmem_tag_put);
+static struct snd_value_tlv_bytes get_param_tag_bytes =
+    SND_VALUE_TLV_BYTES(128 * 1024, amp_get_param_tag_get, amp_get_param_tag_put);
 static struct snd_value_bytes pcm_buf_info_bytes =
     SND_VALUE_BYTES(512 - 16);
 static struct snd_value_bytes pcm_write_datapath_params_bytes =
@@ -2180,6 +2391,47 @@ static void amp_create_acdb_tunnel_get_ctl(struct amp_priv *amp_priv,
             pcm_getacdbtunnel_bytes, pval, pdata);
 }
 
+
+static void amp_create_shmem_alloc_ctl(struct amp_priv *amp_priv,
+            int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl,
+            static_acdb_ctl_name_extn[STATIC_CTL_SHMEM_ALLOC],
+            shmem_alloc_bytes, pval, pdata);
+}
+
+static void amp_create_shmem_free_ctl(struct amp_priv *amp_priv,
+            int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl,
+            static_acdb_ctl_name_extn[STATIC_CTL_SHMEM_FREE],
+            shmem_free_bytes, pval, pdata);
+}
+
+static void amp_create_set_param_shmem_tag_ctl(struct amp_priv *amp_priv,
+            int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl,
+            static_acdb_ctl_name_extn[STATIC_CTL_SET_PARAM_SHMEM_TAG],
+            set_param_shmem_tag_bytes, pval, pdata);
+}
+
+static void amp_create_get_param_tag_ctl(struct amp_priv *amp_priv,
+            int ctl_idx, int pval, void *pdata)
+{
+    struct snd_control *ctl = AMP_PRIV_GET_CTL_PTR(amp_priv, ctl_idx);
+
+    INIT_SND_CONTROL_TLV_BYTES(ctl,
+            static_acdb_ctl_name_extn[STATIC_CTL_GET_PARAM_TAG],
+            get_param_tag_bytes, pval, pdata);
+}
+
 static void amp_create_pcm_flush_ctl(struct amp_priv *amp_priv,
     char *name, int ctl_idx, int pval, void *pdata)
 {
@@ -2431,6 +2683,11 @@ static int amp_form_acdb_ctls(struct amp_priv *amp_priv, int ctl_idx)
                                     acdb_adi);
     amp_create_acdb_tunnel_get_ctl(amp_priv, ctl_idx, acdb_adi->idx_arr[1],
                                     acdb_adi);
+    ctl_idx++;
+    amp_create_shmem_alloc_ctl(amp_priv, ctl_idx++, 0, amp_priv);
+    amp_create_shmem_free_ctl(amp_priv, ctl_idx++, 0, amp_priv);
+    amp_create_set_param_shmem_tag_ctl(amp_priv, ctl_idx++, 0, amp_priv);
+    amp_create_get_param_tag_ctl(amp_priv, ctl_idx, 0, amp_priv);
 
     return 0;
 }
@@ -2506,6 +2763,8 @@ static void amp_close(struct mixer_plugin **plugin)
         amp_priv->event_cb(amp);
     amp_register_event_callback(amp, 0);
     amp_subscribe_events(amp, NULL);
+    amp_free_get_param_info(&amp_priv->shmem_alloc_info);
+    amp_free_get_param_info(&amp_priv->get_param_tag_info);
     snd_card_def_put_card(amp_priv->card_node);
     amp_free_pcm_dev_info(amp_priv);
     amp_free_group_be_dev_info(amp_priv);
@@ -2587,6 +2846,8 @@ int amp_open(struct mixer_plugin **plugin, unsigned int card)
     total_ctl_cnt += pcm_ctl_cnt;
     /* add two static mixer control for acdb param set and get*/
     total_ctl_cnt += 2;
+    /* add static global mixer controls for shmem and tagged get/set */
+    total_ctl_cnt += ARRAY_SIZE(static_acdb_ctl_name_extn) - 2;
     /*
      * Create the controls to be registered
      * When changing this code, be careful to make sure to create

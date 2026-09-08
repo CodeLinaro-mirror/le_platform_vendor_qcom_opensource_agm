@@ -28,8 +28,8 @@
 **/
 
 /*
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+** Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -67,6 +67,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <agm/agm_api.h>
 #include <gio/gio.h>
 #include "utils.h"
@@ -138,6 +143,34 @@ static GList     *ssr_callbacks   = NULL;
 static GMutex     ssr_mutex;
 static GThread   *ssr_thread_loop = NULL;
 static GMainLoop *ssr_loop        = NULL;
+
+static bool agm_fd_is_mmap_candidate(int fd)
+{
+    struct stat st;
+
+    if (fd < 0)
+        return false;
+    if (fstat(fd, &st) != 0)
+        return false;
+
+    /* mmap() on sockets fails with ENODEV */
+    return !S_ISSOCK(st.st_mode);
+}
+
+static int agm_dup_remote_fd(uint32_t service_pid, uint32_t remote_fd)
+{
+    int dup_fd = -1;
+#if defined(SYS_pidfd_open) && defined(SYS_pidfd_getfd)
+    int pidfd = -1;
+
+    pidfd = (int)syscall(SYS_pidfd_open, (pid_t)service_pid, 0);
+    if (pidfd >= 0) {
+        dup_fd = (int)syscall(SYS_pidfd_getfd, pidfd, (int)remote_fd, 0);
+        close(pidfd);
+    }
+#endif
+    return dup_fd;
+}
 
 static GDBusConnection *get_dbus_connection() {
     GError *error = NULL;
@@ -1134,6 +1167,117 @@ int agm_session_get_params(uint32_t session_id, void* payload, size_t size) {
     g_variant_unref(val_arr);
     g_variant_unref(result);
     return rc;
+}
+
+int agm_set_params_with_shmem_by_tag(struct agm_tagged_shmem_config *cfg)
+{
+    GVariant *value_1 = NULL, *argument = NULL;
+    GVariant *result = NULL;
+    GError *error = NULL;
+    size_t cfg_size;
+    int rc = 0;
+
+    if (!cfg || (cfg->num_gkvs == 0) ||
+        (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS))
+        return -EINVAL;
+
+    cfg_size = AGM_TAGGED_SHMEM_CONFIG_SIZE(cfg->num_gkvs);
+    value_1 = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                        (gconstpointer)cfg,
+                                        cfg_size,
+                                        sizeof(gchar));
+    argument = g_variant_new("(@ay)", value_1);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    result = g_dbus_proxy_call_sync(mdata->proxy,
+                                    "AgmSetParamsWithShmemByTag",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSetParamsWithShmemByTag: %s\n",
+                 __func__, error ? error->message : "unknown");
+        if (error)
+            g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
+int agm_get_params_with_tag(struct agm_tagged_get_config *cfg,
+                            void *payload, size_t *size)
+{
+    GVariant *value_1 = NULL, *value_2 = NULL, *value_3 = NULL;
+    GVariant *argument = NULL, *val_arr = NULL, *result = NULL;
+    GError *error = NULL;
+    gconstpointer value;
+    gsize n_elements;
+    gsize element_size = sizeof(guchar);
+    size_t cfg_size;
+    int rc = 0;
+
+    if (!cfg || (cfg->num_gkvs == 0) ||
+        (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS) ||
+        !payload || !size || (*size == 0))
+        return -EINVAL;
+
+    cfg_size = AGM_TAGGED_GET_CONFIG_SIZE(cfg->num_gkvs);
+    value_1 = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                        (gconstpointer)cfg,
+                                        cfg_size,
+                                        sizeof(gchar));
+    value_2 = g_variant_new_uint32(*size);
+    value_3 = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                        (gconstpointer)payload,
+                                        *size,
+                                        sizeof(gchar));
+    argument = g_variant_new("(@ay@u@ay)", value_1, value_2, value_3);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    result = g_dbus_proxy_call_sync(mdata->proxy,
+                                    "AgmGetParamsWithTag",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmGetParamsWithTag: %s\n",
+                 __func__, error ? error->message : "unknown");
+        if (error)
+            g_error_free(error);
+        return -EINVAL;
+    }
+
+    val_arr = g_variant_get_child_value(result, 0);
+    value = g_variant_get_fixed_array(val_arr, &n_elements, element_size);
+    if (n_elements <= *size) {
+        memcpy(payload, value, n_elements);
+        *size = n_elements;
+    } else  {
+        AGM_LOGE("Insufficient bytes size to copy bytes read\n");
+        g_variant_unref(val_arr);
+        g_variant_unref(result);
+        return -ENOMEM;
+    }
+
+    g_variant_unref(val_arr);
+    g_variant_unref(result);
+    return 0;
 }
 
 int agm_session_set_params(uint32_t session_id, void* payload, size_t size) {
@@ -2673,11 +2817,167 @@ int agm_get_group_aif_info_list(struct aif_info *aif_list, size_t *num_groups){
 }
 
 int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info){
-    return -EINVAL;
+    GVariant *value_1 = NULL, *value_2 = NULL, *argument = NULL;
+    GVariant *result = NULL;
+    GUnixFDList *out_fd_list = NULL;
+    GError *error = NULL;
+    const gchar *result_sig = NULL;
+    gint32 fd_handle = -1;
+    guint32 remote_fd = 0;
+    guint32 service_pid = 0;
+    gint32 ion_fd = -1;
+    guint64 spf_addr = 0;
+    guint32 spf_mem_handle = 0;
+    char proc_fd_path[PATH_MAX];
+    int rc = 0;
+
+    if (!buf_info)
+        return -EINVAL;
+
+    value_1 = g_variant_new_uint32(buf_info->size);
+    value_2 = g_variant_new_uint32(buf_info->cache);
+    argument = g_variant_new("(@u@u)", value_1, value_2);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    result = g_dbus_proxy_call_with_unix_fd_list_sync(mdata->proxy,
+                                    "AgmShmemBufAlloc",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &out_fd_list,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmShmemBufAlloc: %s\n", __func__,
+                 error ? error->message : "unknown");
+        if (error)
+            g_error_free(error);
+        return -EINVAL;
+    }
+
+    result_sig = g_variant_get_type_string(result);
+    if (!g_strcmp0(result_sig, "(utuu)")) {
+        g_variant_get(result, "(utuu)", &remote_fd, &spf_addr,
+                      &spf_mem_handle, &service_pid);
+        if (!remote_fd || !service_pid) {
+            AGM_LOGE("%s: Invalid nonfd reply remote_fd %u service_pid %u",
+                     __func__, remote_fd, service_pid);
+            g_variant_unref(result);
+            if (out_fd_list)
+                g_object_unref(out_fd_list);
+            return -EINVAL;
+        }
+
+        if (snprintf(proc_fd_path, sizeof(proc_fd_path), "/proc/%u/fd/%u",
+                     service_pid, remote_fd) >= (int)sizeof(proc_fd_path)) {
+            AGM_LOGE("%s: proc fd path overflow for pid %u fd %u",
+                     __func__, service_pid, remote_fd);
+            g_variant_unref(result);
+            if (out_fd_list)
+                g_object_unref(out_fd_list);
+            return -EINVAL;
+        }
+
+        ion_fd = agm_dup_remote_fd(service_pid, remote_fd);
+        if (ion_fd < 0)
+            ion_fd = open(proc_fd_path, O_RDWR | O_CLOEXEC);
+        if (ion_fd < 0)
+            ion_fd = open(proc_fd_path, O_RDONLY | O_CLOEXEC);
+        if (ion_fd < 0) {
+            AGM_LOGE("%s: failed to open %s, errno %d",
+                     __func__, proc_fd_path, errno);
+            g_variant_unref(result);
+            if (out_fd_list)
+                g_object_unref(out_fd_list);
+            return -EINVAL;
+        }
+
+        if (!agm_fd_is_mmap_candidate(ion_fd)) {
+            AGM_LOGE("%s: fd from %s is not mmap-capable",
+                     __func__, proc_fd_path);
+            close(ion_fd);
+            g_variant_unref(result);
+            if (out_fd_list)
+                g_object_unref(out_fd_list);
+            return -EINVAL;
+        }
+    } else if (!g_strcmp0(result_sig, "(htu)")) {
+        g_variant_get(result, "(htu)", &fd_handle, &spf_addr, &spf_mem_handle);
+        if (!out_fd_list || fd_handle < 0) {
+            AGM_LOGE("%s: invalid fd reply for AgmShmemBufAlloc", __func__);
+            g_variant_unref(result);
+            return -EINVAL;
+        }
+
+        ion_fd = g_unix_fd_list_get(out_fd_list, fd_handle, &error);
+        if (ion_fd < 0 || !agm_fd_is_mmap_candidate(ion_fd)) {
+            if (ion_fd >= 0)
+                close(ion_fd);
+            AGM_LOGE("%s: failed to get valid mmap-capable fd from returned fd list",
+                     __func__);
+            if (error)
+                g_error_free(error);
+            g_variant_unref(result);
+            g_object_unref(out_fd_list);
+            return -EINVAL;
+        }
+    } else {
+        AGM_LOGE("%s: unexpected AgmShmemBufAlloc signature %s",
+                 __func__, result_sig ? result_sig : "<null>");
+        g_variant_unref(result);
+        if (out_fd_list)
+            g_object_unref(out_fd_list);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    if (out_fd_list)
+        g_object_unref(out_fd_list);
+
+    buf_info->ion_fd = (uint32_t)ion_fd;
+    buf_info->spf_addr = (uint64_t)spf_addr;
+    buf_info->spf_mem_handle = (uint32_t)spf_mem_handle;
+    return 0;
 }
 
 int agm_shmem_buf_free(uint32_t spf_mem_handle){
-    return -EINVAL;
+    GVariant *value_1 = NULL, *argument = NULL;
+    GVariant *result = NULL;
+    GError *error = NULL;
+    int rc = 0;
+
+    value_1 = g_variant_new_uint32(spf_mem_handle);
+    argument = g_variant_new("(@u)", value_1);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    result = g_dbus_proxy_call_sync(mdata->proxy,
+                                    "AgmShmemBufFree",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmShmemBufFree: %s\n", __func__,
+                 error ? error->message : "unknown");
+        if (error)
+            g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
 }
 
 static void on_emit_ssr_signal_callback(GDBusConnection *conn,

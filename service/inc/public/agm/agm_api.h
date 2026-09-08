@@ -452,13 +452,37 @@ struct agm_acdb_tunnel_param {
 };
 
 struct agm_shmem_info {
-    uint32_t size;
-    uint32_t cache;
-    uint64_t spf_addr;
-    uint32_t ion_fd;
-    uint32_t spf_mem_handle;
+    uint32_t size;           /**< requested shared memory size in bytes */
+    uint32_t cache;          /**< cache mode: 0 = default cached mapping, 1 = uncached mapping */
+    uint64_t spf_addr;       /**< shared memory address returned by SPF */
+    uint32_t ion_fd;         /**< dmabuf fd returned by AGM on successful allocation */
+    uint32_t spf_mem_handle; /**< shared memory handle returned by SPF */
 };
 
+#define AGM_MAX_TAGGED_GKVS 48U
+
+struct agm_tagged_shmem_config {
+    uint32_t tag_id;
+    uint32_t spf_mem_handle;
+    uint32_t payload_size;
+    uint32_t payload_offset;
+    uint32_t num_gkvs;
+    struct agm_key_value gkv[];
+};
+
+struct agm_tagged_get_config {
+    uint32_t tag_id;
+    uint32_t num_gkvs;
+    struct agm_key_value gkv[];
+};
+
+#define AGM_TAGGED_SHMEM_CONFIG_SIZE(num_gkvs) \
+    (sizeof(struct agm_tagged_shmem_config) + \
+     ((num_gkvs) * sizeof(struct agm_key_value)))
+
+#define AGM_TAGGED_GET_CONFIG_SIZE(num_gkvs) \
+    (sizeof(struct agm_tagged_get_config) + \
+     ((num_gkvs) * sizeof(struct agm_key_value)))
 
 /**
  * SSR event types raised to AGM clients
@@ -1139,6 +1163,29 @@ int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info);
  * \return 0 on success, error code on failure.
  */
 int agm_shmem_buf_free(uint32_t spf_mem_handle);
+
+/**
+ * \brief Set a custom config payload from common shared memory to the active
+ *        graph identified by GKV and containing the requested tag.
+ *
+ * \param[in] cfg - tag and shared-memory payload descriptor.
+ *
+ * \return 0 on success, error code on failure.
+ */
+int agm_set_params_with_shmem_by_tag(struct agm_tagged_shmem_config *cfg);
+
+/**
+ * \brief Get a custom config payload from the active graph identified by GKV
+ *        and containing tag.
+ *
+ * \param[in] cfg - GKV and tag identifying the target graph/module.
+ * \param[in/out] payload - Query buffer and returned parameter payload.
+ * \param[in/out] size - Query size on input and returned size on output.
+ *
+ * \return 0 on success, error code on failure.
+ */
+int agm_get_params_with_tag(struct agm_tagged_get_config *cfg, void *payload,
+                            size_t *size);
 
 /**
   * \brief This api is a no-op if agm runs in clients context.

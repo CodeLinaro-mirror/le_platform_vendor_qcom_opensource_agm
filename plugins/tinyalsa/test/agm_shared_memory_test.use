@@ -1,0 +1,327 @@
+# tinyalsa_agmtest
+
+## agm_shared_memory_test
+
+`agm_shared_memory_test` validates tagged `AUDIO_LOAD` parameter handling with
+shared memory. The tool allocates a shared-memory buffer, writes a
+`CAPI_V2_PARAM_ID_LOAD_DUMMY` payload into it, shares the buffer with tagged
+modules using GKV-scoped shared-memory SET, and verifies the result using either
+copy-based tagged GET or direct app-side mapped-memory reads.
+
+### Concepts
+
+- `ShmemAlloc` and `ShmemFree` are global TinyALSA mixer controls used to manage
+  the shared-memory buffer lifetime.
+- `setParamShmemTag` is a global TinyALSA mixer control. It sends
+  `tag_id + spf_mem_handle + payload_size + target GKV` to AGM.
+- `getParamTag` is a global TinyALSA mixer control. It performs normal
+  copy-based tagged GET using `tag_id + target GKV`.
+- The same shared-memory SET path is used for externally opened graphs and for
+  graphs opened by `agm_shared_memory_test` itself. The difference is graph
+  ownership, not the SET API.
+
+### Payload
+
+The test writes this layout into the mapped shared-memory buffer:
+
+```
+apm_module_param_data_t
+  module_instance_id = 0
+  param_id           = CAPI_V2_PARAM_ID_LOAD_DUMMY
+  param_size         = sizeof(capi_v2_load_dummy_t + array)
+
+capi_v2_load_dummy_t
+  num                = write_count
+  array[i]           = i
+```
+
+### Common Options
+
+```
+-D <card>              Mixer/PCM card, default 100
+-u <size>              Allocate shared memory
+-w <count>             Write dummy payload with count uint32_t values
+-T <tag_id>            Tagged module id to target
+-gkv <key=value,...>   Explicit target graph GKV
+-P2                    Shared-memory tagged SET
+-Q2 <count>            Copy-based tagged GET and compare
+-R2 <count>            Direct mapped-memory read and compare
+--interactive, -I      Enter interactive prompt
+```
+
+### Interactive Commands
+
+The interactive prompt is useful when one shared-memory allocation must remain
+alive while it is shared with multiple graphs. Use the command reference below
+with the external and owner examples in the next sections.
+
+```
+Common shared-memory setup:
+  help
+    Print the interactive command list.
+
+  status
+    Show current tag, shared-memory allocation state, selected target, and
+    owner graph state.
+
+  tag <tag_id>
+    Set the module tag id used by set/get commands.
+    Example: tag 0xC00FF022
+
+  alloc <size>
+    Allocate shared memory using the global ShmemAlloc mixer control.
+    Example: alloc 2097152
+
+  write <count>
+    Write the test payload into the allocated shared memory. The payload uses
+    count uint32_t values with array[i] = i.
+    Example: write 8
+
+External graph mode commands:
+
+graph is opened by another app, for example agmplay
+
+  gkv <gkv>
+    Set an unnamed external graph target using GKV. Use this for quick testing
+    when only one external graph needs to be controlled.
+    Example: gkv skv=0xA1000001,dkv=0xA2000016,dppkv=0xAC000002,vmid=0xDD000001
+
+  target add <name> <gkv>
+    Save an external graph target with a readable name. This lets the same app
+    session switch between multiple externally opened graphs.
+    Example: target add graph1 skv=0xA1000001,dkv=0xA2000016,dppkv=0xAC000002,vmid=0xDD000001
+
+  target use <name>
+    Select a previously saved external target as the current set/get target.
+    Example: target use graph1
+
+  target list
+    List all saved external graph targets and show which one is current.
+
+  set
+    Send the shared-memory handle to the currently selected external graph.
+    Requires tag, allocated memory, written payload, and selected GKV target.
+
+  get <count> [start]
+    Perform copy-based tagged GET from the currently selected graph and compare
+    the returned values against the test payload. start is optional and means
+    the starting array index.
+    Example: get 8
+    Example: get 4 2
+```
+
+External Graph Mode Example:
+
+Use this when another process owns the graph, such as `agmplay`. Start the graph
+first from the external app, then keep `agm_shared_memory_test` alive and share
+the same memory handle to one or more graph targets.
+
+graph open/start by external app
+
+```
+adb shell agmplay /data/samples_per_sec_all_channels_48KHz_16bit_8ch_2min.wav \
+  -D 100 -d 100 -i PCM_RT_PROXY-RX-2 \
+  -dkv 0xA2000016 -skv 0xA1000001 -dppkv 0xAC000002 \
+  -vmid_kv 0xDD000001 -c 8
+
+adb shell agmplay /data/samples_per_sec_all_channels_48KHz_16bit_8ch_2min.wav \
+  -D 100 -d 104 -i TDM-LPAIF_AUD-RX-PRIMARY \
+  -dkv 0xA2000017 -skv 0xA1000001 -ikv 1 \
+  -vmid_kv 0xDD000001 -c 8
+```
+
+Interactive controller:
+
+```
+agm_shared_memory_test -D 100 -u 2097152 -w 8 -T 0xC00FF022 --interactive
+```
+
+Prompt sequence:
+
+```
+target add graph1 skv=0xA1000001,dkv=0xA2000016,dppkv=0xAC000002,vmid=0xDD000001
+set
+get 8
+
+target add graph2 skv=0xA1000001,dkv=0xA2000017,ikv=1,vmid=0xDD000001
+set
+get 8
+
+read 8
+exit
+```
+
+Flow:
+
+```
+external app opens graph
+agm_shared_memory_test allocates and maps shared memory
+target add/use selects graph by GKV
+set -> setParamShmemTag -> AGM finds opened graph by GKV -> DSP module receives shared-memory payload
+get -> getParamTag -> copy-based tagged GET from selected graph
+exit -> free shared memory only; external graphs are not stopped by this app
+```
+
+Owner graph mode commands:
+
+graph is opened and controlled by this test app
+
+```
+  graph add <name> -d <dev> -i <intf> -skv <kv> -dkv <kv> [owner opts]
+    Save an owner graph configuration with a readable name. The graph is owned
+    by this test app, so the app can open/start/stop/close it.
+    Required options are PCM device, interface name, stream KV, and device KV.
+    Optional owner opts include -dppkv, -ikv, -vmid_kv, -offload, --channels,
+    --rate, and --bits.
+    Example: graph add graph1 -d 100 -i PCM_RT_PROXY-RX-2 -skv 0xA1000001 -dkv 0xA2000016 -dppkv 0xAC000002 -vmid_kv 0xDD000001 --channels 8
+
+  graph use <name>
+    Select a saved owner graph as the current graph target.
+    Example: graph use graph1
+
+  graph list
+    List all saved owner graphs and show open/start state.
+
+  graph open [name]
+    Open the selected owner graph, or the named graph if name is provided.
+    This programs metadata, connects stream to interface, and calls pcm_open.
+    Example: graph open graph1
+
+  graph set [name]
+    Share the current shared-memory handle with the selected owner graph, or
+    the named graph if name is provided. If the graph is not open yet, this
+    command opens it first.
+    Example: graph set graph1
+
+  graph start [name]
+    Start the selected owner graph, or the named graph if name is provided.
+    If the graph is not open yet, this command opens it first.
+    Example: graph start graph1
+
+  graph stop [name]
+    Stop the selected owner graph, or the named graph if name is provided.
+    Example: graph stop graph1
+
+  graph close [name]
+    Close the selected owner graph, or the named graph if name is provided.
+    This stops the graph if needed, disconnects the stream, and closes PCM.
+    Example: graph close graph1
+```
+
+Owner Graph Mode Example:
+
+Use this when `agm_shared_memory_test` should open and control the graph. The app
+can manage multiple owner graphs in one interactive session and share the same
+memory handle to each graph.
+
+Start the prompt:
+
+```
+agm_shared_memory_test -D 100 -u 2097152 -w 8 -T 0xC00FF022 --interactive
+```
+
+Prompt sequence:
+
+```
+graph add graph1 -d 100 -i PCM_RT_PROXY-RX-2 -skv 0xA1000001 -dkv 0xA2000016 -dppkv 0xAC000002 -vmid_kv 0xDD000001 --channels 8
+graph set graph1
+graph start graph1
+
+graph add graph2 -d 104 -i TDM-LPAIF_AUD-RX-PRIMARY -skv 0xA1000001 -dkv 0xA2000017 -ikv 1 -vmid_kv 0xDD000001 --channels 8
+graph set graph2
+graph start graph2
+
+graph list
+get 8
+read 8
+exit
+```
+
+Recommended order for each owner graph:
+
+```
+graph add
+graph set     opens the graph if needed, then shares memory
+graph start
+```
+
+Flow:
+
+```
+graph add -> parse owner graph options and infer target GKV
+graph set -> owner_graph_open if needed -> pcm_open -> setParamShmemTag -> AGM finds graph by GKV
+graph start -> pcm_start
+graph stop/close or exit -> pcm_stop, disconnect, pcm_close
+```
+
+```
+Verification and session control:
+  read <count> [start]
+    Read directly from the app's mapped shared-memory virtual address and
+    compare values against the test payload. start is optional and means the
+    starting array index.
+    Example: read 8
+    Example: read 4 2
+
+  sleep <ms>
+    Pause the interactive session for the requested time.
+    Example: sleep 100
+
+  exit
+    Exit the prompt. Owner graphs opened by this app are stopped/closed during
+    cleanup, and shared memory is freed if the free flag is enabled.
+```
+
+### Batch Mode
+
+Batch mode is useful for automation or for a single-shot validation command.
+The tool processes command-line options in the exact order they are given, and
+most options execute immediately when parsed. Because of that, prerequisites
+must appear before the operation that needs them. For example, allocate memory
+with `-u` before `-w`, set the tag and target GKV before `-P2` or `-Q2`, and in
+owner mode use `-P2` before `--start-graph` if the memory should be shared
+before the graph starts.
+
+External graph example:
+
+```
+agm_shared_memory_test -D 100 -u 2097152 -w 8 -T 0xC00FF022 \
+  -gkv skv=0xA1000001,dkv=0xA2000016,dppkv=0xAC000002,vmid=0xDD000001 \
+  -P2 -Q2 8 -R2 8 -f 1
+```
+
+Owner graph example:
+
+```
+agm_shared_memory_test --open-graph \
+  -D 100 -d 100 -i PCM_RT_PROXY-RX-2 \
+  -skv 0xA1000001 -dkv 0xA2000016 -dppkv 0xAC000002 \
+  -vmid_kv 0xDD000001 --channels 8 --rate 48000 --bits 16 \
+  -u 2097152 -w 8 -T 0xC00FF022 \
+  -P2 --start-graph --hold-ms 5000 -Q2 8 -f 1
+```
+
+`--hold-ms` is only useful in non-interactive owner mode. In interactive mode the
+prompt keeps the process alive until `exit`.
+
+### Cleanup
+
+On `exit` or process termination through the normal cleanup path:
+
+```
+owner graphs opened by this app:
+  pcm_stop, if started
+  disconnect stream from audio interface
+  pcm_close
+
+shared memory:
+  munmap app virtual address
+  ShmemFree using spf_mem_handle
+  close ion_fd
+
+mixer:
+  mixer_close
+```
+
+External graphs are not stopped or closed by `agm_shared_memory_test` because
+they are owned by the external app that opened them.

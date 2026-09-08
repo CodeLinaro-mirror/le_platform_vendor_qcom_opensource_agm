@@ -43,7 +43,11 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/stat.h>
 #include "gsl_intf.h"
 #include "gsl_shmem_mgr.h"
 
@@ -179,11 +183,162 @@ struct shmem_link_list {
 
 typedef struct shmem_link_node {
    struct gsl_shmem_alloc_data shmem;
+   size_t alloc_size;
    struct listnode tagged_list;
 }shmem_link_node_t;
 
 struct shmem_link_list *g_shmem_list = NULL;
+static pthread_mutex_t g_shmem_list_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static int agm_shmem_list_ensure(void)
+{
+    int ret = 0;
+
+    pthread_mutex_lock(&g_shmem_list_lock);
+    if (!g_shmem_list) {
+        g_shmem_list = calloc(1, sizeof(*g_shmem_list));
+        if (!g_shmem_list) {
+            AGM_LOGE("Failed to allocate g_shmem_list");
+            ret = -ENOMEM;
+        } else {
+            list_init(&g_shmem_list->shmem_list);
+            pthread_mutex_init(&g_shmem_list->lock,
+                               (const pthread_mutexattr_t *)NULL);
+        }
+    }
+    pthread_mutex_unlock(&g_shmem_list_lock);
+
+    return ret;
+}
+
+static struct shmem_link_list *agm_shmem_list_get(void)
+{
+    struct shmem_link_list *shmem_list;
+
+    pthread_mutex_lock(&g_shmem_list_lock);
+    shmem_list = g_shmem_list;
+    pthread_mutex_unlock(&g_shmem_list_lock);
+
+    return shmem_list;
+}
+
+/* metadata points to audio_smmu_helper where smmu_ctx.dmabuf_fd exists */
+struct agm_shmem_smmu_ctx_stub {
+    unsigned long dma_addr;
+    int dmabuf_fd;
+};
+
+struct agm_shmem_helper_stub {
+    uint8_t sid;
+    uint8_t _pad[3];
+    uint32_t dsp_type;
+    struct agm_shmem_smmu_ctx_stub smmu_ctx;
+};
+
+static bool agm_fd_is_mmap_candidate(int fd)
+{
+    struct stat st;
+
+    if ((fd < 0) || (fcntl(fd, F_GETFD) == -1))
+        return false;
+    if (fstat(fd, &st) != 0)
+        return false;
+
+    /* mmap() on sockets fails with ENODEV; reject those explicitly */
+    return !S_ISSOCK(st.st_mode);
+}
+
+static int agm_extract_dmabuf_fd(uint64_t metadata, uint32_t *ion_fd)
+{
+    uint64_t legacy_fd64;
+    int helper_fd;
+    long page_size;
+
+    if (!metadata || !ion_fd)
+        return -EINVAL;
+
+    /*
+     * metadata is expected to be a process-local pointer from OSAL. Reject
+     * addresses in the first user-space page when the runtime page size is
+     * available.
+     */
+    page_size = sysconf(_SC_PAGESIZE);
+    if ((page_size > 0) && (metadata < (uint64_t)page_size))
+        return -EINVAL;
+
+    helper_fd =
+        ((struct agm_shmem_helper_stub *)(uintptr_t)metadata)->smmu_ctx.dmabuf_fd;
+    if (agm_fd_is_mmap_candidate(helper_fd)) {
+        *ion_fd = (uint32_t)helper_fd;
+        return 0;
+    }
+
+    /* Legacy path: metadata points to a uint64_t fd value */
+    legacy_fd64 = *((uint64_t *)(uintptr_t)metadata);
+    if (legacy_fd64 <= (uint64_t)INT_MAX &&
+        agm_fd_is_mmap_candidate((int)legacy_fd64)) {
+        *ion_fd = (uint32_t)legacy_fd64;
+        return 0;
+    }
+
+    return -EINVAL;
+}
+
+static int agm_shmem_get_alloc_by_handle(uint32_t spf_mem_handle,
+                                         struct gsl_shmem_alloc_data *shmem,
+                                         size_t *alloc_size)
+{
+    struct shmem_link_list *shmem_list = NULL;
+    struct listnode *node = NULL;
+    shmem_link_node_t *temp_mod = NULL;
+    int ret = -ENOENT;
+
+    if (!shmem || !alloc_size)
+        return -EINVAL;
+
+    shmem_list = agm_shmem_list_get();
+    if (!shmem_list)
+        return -EINVAL;
+
+    pthread_mutex_lock(&shmem_list->lock);
+    if (!list_empty(&shmem_list->shmem_list)) {
+        list_for_each(node, &shmem_list->shmem_list) {
+            temp_mod = node_to_item(node, shmem_link_node_t, tagged_list);
+            if (temp_mod && (spf_mem_handle == temp_mod->shmem.spf_mmap_handle)) {
+                memcpy(shmem, &temp_mod->shmem, sizeof(*shmem));
+                *alloc_size = temp_mod->alloc_size;
+                ret = 0;
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&shmem_list->lock);
+
+    return ret;
+}
+
+
+static bool agm_shmem_handle_tracked_locked(struct shmem_link_list *shmem_list,
+                                            uint32_t spf_mem_handle)
+{
+    struct listnode *node = NULL;
+    shmem_link_node_t *temp_mod = NULL;
+
+    if (!shmem_list)
+        return false;
+
+    if (list_empty(&shmem_list->shmem_list))
+        return false;
+
+    list_for_each(node, &shmem_list->shmem_list) {
+        temp_mod = node_to_item(node, shmem_link_node_t, tagged_list);
+        if (temp_mod &&
+            (spf_mem_handle == temp_mod->shmem.spf_mmap_handle))
+            return true;
+    }
+
+    return false;
+}
 
 static void *ats_init_thread(void *obj __unused)
 {
@@ -644,6 +799,65 @@ int agm_session_set_params(uint32_t session_id,
 }
 
 done:
+    return ret;
+}
+
+int agm_set_params_with_shmem_by_tag(struct agm_tagged_shmem_config *cfg)
+{
+    struct gsl_shmem_alloc_data shmem = { 0 };
+    struct agm_key_vector_gsl target_gkv = { 0, NULL };
+    size_t alloc_size = 0;
+    int ret = 0;
+
+    if (!cfg || (cfg->tag_id == 0) || (cfg->spf_mem_handle == 0) ||
+        (cfg->payload_size == 0) || (cfg->num_gkvs == 0)) {
+        AGM_LOGE("invalid tagged shmem config\n");
+        return -EINVAL;
+    }
+
+    target_gkv.num_kvs = cfg->num_gkvs;
+    target_gkv.kv = cfg->gkv;
+
+    ret = agm_shmem_get_alloc_by_handle(cfg->spf_mem_handle, &shmem,
+                                        &alloc_size);
+    if (ret) {
+        AGM_LOGE("invalid shmem handle 0x%x for tag 0x%x\n",
+                 cfg->spf_mem_handle, cfg->tag_id);
+        return ret;
+    }
+
+    ret = session_obj_set_params_with_shmem_by_tag(&shmem, cfg->tag_id,
+            &target_gkv, cfg->payload_size, cfg->payload_offset, alloc_size);
+    if (ret) {
+        AGM_LOGE("Error:%d setting params with shmem for tag 0x%x handle=0x%x payload_size=%u payload_offset=%u num_gkvs=%u\n",
+                 ret, cfg->tag_id, cfg->spf_mem_handle, cfg->payload_size,
+                 cfg->payload_offset, cfg->num_gkvs);
+    }
+
+    return ret;
+}
+
+int agm_get_params_with_tag(struct agm_tagged_get_config *cfg, void *payload,
+                            size_t *size)
+{
+    struct agm_key_vector_gsl target_gkv = { 0, NULL };
+    int ret = 0;
+
+    if (!cfg || (cfg->tag_id == 0) || (cfg->num_gkvs == 0) ||
+        !payload || !size || (*size == 0)) {
+        AGM_LOGE("invalid get params by tag input\n");
+        return -EINVAL;
+    }
+
+    target_gkv.num_kvs = cfg->num_gkvs;
+    target_gkv.kv = cfg->gkv;
+
+    ret = session_obj_get_params_with_tag(cfg->tag_id, &target_gkv, payload,
+                                          size);
+    if (ret)
+        AGM_LOGE("Error:%d getting params for tag 0x%x num_gkvs=%u\n",
+                 ret, cfg->tag_id, cfg->num_gkvs);
+
     return ret;
 }
 
@@ -1189,9 +1403,9 @@ int agm_session_set_buf_info(uint32_t session_id, struct agm_buf_info *buf_info,
 
 int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info)
 {
+    struct shmem_link_list *shmem_list = NULL;
     shmem_link_node_t *shmem_node = NULL;
-    struct listnode *node = NULL;
-    uint64_t *ion_fd = NULL;
+    uint32_t shmem_flags = 0;
     int ret = -1;
 
     if (!buf_info) {
@@ -1199,14 +1413,14 @@ int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info)
         goto fail;
     }
 
-    if (!g_shmem_list) {
-        g_shmem_list = malloc(sizeof(struct shmem_link_list));
-        if (!g_shmem_list) {
-            AGM_LOGE("Failed to allocate g_shmem_list");
-            goto fail;
-        }
-        list_init(&g_shmem_list->shmem_list);
-        pthread_mutex_init(&g_shmem_list->lock, (const pthread_mutexattr_t *)NULL);
+    ret = agm_shmem_list_ensure();
+    if (ret)
+        goto fail;
+
+    shmem_list = agm_shmem_list_get();
+    if (!shmem_list) {
+        ret = -EINVAL;
+        goto fail;
     }
 
     shmem_node = malloc(sizeof(shmem_link_node_t));
@@ -1215,8 +1429,13 @@ int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info)
         goto fail;
     }
 
+    /*
+     * Keep cached mode flagless (0) for compatibility with GSL variants
+     * that reject GSL_SHMEM_MAP_CACHED as an unknown bit and return -EINVAL.
+     */
+    shmem_flags = (buf_info->cache) ? GSL_SHMEM_MAP_UNCACHED : 0;
     ret = gsl_shmem_alloc_ext(buf_info->size,
-            GSL_GET_SPF_SS_MASK(AR_AUDIO_DSP), (buf_info->cache) ? GSL_SHMEM_MAP_UNCACHED : GSL_SHMEM_MAP_CACHED, 0, AR_AUDIO_DSP,
+            GSL_GET_SPF_SS_MASK(AR_AUDIO_DSP), shmem_flags, 0, AR_AUDIO_DSP,
             &shmem_node->shmem);
     if (ret) {
         AGM_LOGE("get shmem buf info failed with err %d", ret);
@@ -1224,28 +1443,42 @@ int agm_shmem_buf_alloc(struct agm_shmem_info *buf_info)
     }
 
     if (shmem_node->shmem.metadata) {
-        pthread_mutex_lock(&g_shmem_list->lock);
-        list_add_tail(&g_shmem_list->shmem_list, &shmem_node->tagged_list);
-        pthread_mutex_unlock(&g_shmem_list->lock);
+        ret = agm_extract_dmabuf_fd(shmem_node->shmem.metadata,
+                                    &buf_info->ion_fd);
+        if (ret) {
+            AGM_LOGE("failed to extract valid dmabuf fd from metadata 0x%llx",
+                     (unsigned long long)shmem_node->shmem.metadata);
+            goto shmem_fail;
+        }
 
-        ion_fd = (uint64_t *)shmem_node->shmem.metadata;
-        buf_info->ion_fd = (uint32_t)*ion_fd;
+        pthread_mutex_lock(&shmem_list->lock);
+        if (agm_shmem_handle_tracked_locked(shmem_list,
+                                            shmem_node->shmem.spf_mmap_handle)) {
+            AGM_LOGE("shared memory handle 0x%x is already tracked",
+                     shmem_node->shmem.spf_mmap_handle);
+            pthread_mutex_unlock(&shmem_list->lock);
+            ret = -EBUSY;
+            goto shmem_fail;
+        }
+
+        shmem_node->alloc_size = buf_info->size;
+        list_add_tail(&shmem_list->shmem_list, &shmem_node->tagged_list);
+        pthread_mutex_unlock(&shmem_list->lock);
+
         buf_info->spf_addr = shmem_node->shmem.spf_addr;
         buf_info->spf_mem_handle = shmem_node->shmem.spf_mmap_handle;
     } else {
         ret =  -EINVAL;
-        goto list_fail;
+        goto shmem_fail;
     }
     return ret;
 
+shmem_fail:
+    if (shmem_node->shmem.handle)
+        gsl_shmem_free(&shmem_node->shmem);
 list_fail:
     free(shmem_node);
 fail:
-    if (g_shmem_list && list_empty(&g_shmem_list->shmem_list)) {
-        pthread_mutex_destroy(&g_shmem_list->lock);
-        free(g_shmem_list);
-        g_shmem_list = NULL;
-    }
     if(buf_info != NULL) {
         buf_info->spf_addr = 0;
         buf_info->ion_fd = 0;
@@ -1256,40 +1489,40 @@ fail:
 
 int agm_shmem_buf_free(uint32_t spf_mem_handle)
 {
+    struct shmem_link_list *shmem_list = NULL;
     struct listnode *node = NULL;
     shmem_link_node_t *temp_mod = NULL;
     int ret = 0;
 
-    if (g_shmem_list) {
-        pthread_mutex_lock(&g_shmem_list->lock);
-        if (!list_empty(&g_shmem_list->shmem_list)) {
-            list_for_each(node, &g_shmem_list->shmem_list) {
-                temp_mod = node_to_item(node, shmem_link_node_t, tagged_list);
-                if (temp_mod) {
-                    if (spf_mem_handle == temp_mod->shmem.spf_mmap_handle) {
-                        if (temp_mod->shmem.handle) {
-                            ret = gsl_shmem_free(&temp_mod->shmem);
-                            temp_mod->shmem.v_addr = NULL;
-                            temp_mod->shmem.handle = NULL;
-                        }
-                        list_remove(node);
-                        free(temp_mod);
+    shmem_list = agm_shmem_list_get();
+    if (!shmem_list)
+        return ret;
+
+    pthread_mutex_lock(&shmem_list->lock);
+    if (!list_empty(&shmem_list->shmem_list)) {
+        list_for_each(node, &shmem_list->shmem_list) {
+            temp_mod = node_to_item(node, shmem_link_node_t, tagged_list);
+            if (temp_mod) {
+                if (spf_mem_handle == temp_mod->shmem.spf_mmap_handle) {
+                    if (temp_mod->shmem.handle) {
+                        ret = gsl_shmem_free(&temp_mod->shmem);
+                        if (ret)
+                            break;
+
+                        temp_mod->shmem.v_addr = NULL;
+                        temp_mod->shmem.handle = NULL;
                     }
-                } else {
-                    AGM_LOGE("shmem.metadata is not valid");
+                    list_remove(node);
+                    free(temp_mod);
+                    break;
                 }
+            } else {
+                AGM_LOGE("shmem.metadata is not valid");
             }
         }
-
-        if (list_empty(&g_shmem_list->shmem_list)) {
-            pthread_mutex_unlock(&g_shmem_list->lock);
-            pthread_mutex_destroy(&g_shmem_list->lock);
-            free(g_shmem_list);
-            g_shmem_list = NULL;
-        } else {
-            pthread_mutex_unlock(&g_shmem_list->lock);
-        }
     }
+    pthread_mutex_unlock(&shmem_list->lock);
+
     return ret;
 }
 

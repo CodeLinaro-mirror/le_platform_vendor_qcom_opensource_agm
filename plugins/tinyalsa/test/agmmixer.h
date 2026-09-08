@@ -26,9 +26,9 @@
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
-** SPDX-License-Identifier: BSD-3-Clause-Clear
+** Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+** SPDX-License-Identifier: BSD-3-Clause
 */
 
 #ifndef __AGM_COMMON_H__
@@ -37,6 +37,7 @@
 #include <tinyalsa/asoundlib.h>
 #include <agm/agm_api.h>
 #include <kvh2xml.h>
+#include <agm/agm_api.h>
 
 enum usecase_type{
     PLAYBACK,
@@ -108,6 +109,13 @@ int agm_mixer_set_param_with_file(struct mixer *mixer, int device,
 int agm_mixer_set_ecref_path(struct mixer *mixer, unsigned int device, enum stream_type stype, char *intf_name);
 int agm_mixer_get_event_param(struct mixer *mixer, int device, enum stream_type stype,uint32_t miid);
 int agm_mixer_get_buf_tstamp(struct mixer *mixer, int device, enum stream_type stype, uint64_t *tstamp);
+int agm_mixer_shmem_alloc(struct mixer *mixer, struct agm_shmem_info *info);
+int agm_mixer_shmem_free(struct mixer *mixer, uint32_t spf_mem_handle);
+int agm_mixer_set_param_shmem_by_tag(struct mixer *mixer,
+                                     struct agm_tagged_shmem_config *cfg);
+int agm_mixer_get_param_by_tag(struct mixer *mixer,
+                               struct agm_tagged_get_config *cfg,
+                               void *payload, size_t size);
 int get_device_media_config(char* filename, char *intf_name, struct device_config *config);
 int get_group_device_info(char* filename, char *intf_name, struct group_config *config);
 int configure_mfc(struct mixer *mixer, int device, char *intf_name, int tag, enum stream_type stype, unsigned int rate,

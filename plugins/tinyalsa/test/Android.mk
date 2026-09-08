@@ -206,3 +206,30 @@ LOCAL_SHARED_LIBRARIES += \
     libagmmixer
 
 include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE        := agm_shared_memory_test
+LOCAL_MODULE_OWNER  := qti
+LOCAL_MODULE_TAGS   := optional
+LOCAL_VENDOR_MODULE := true
+
+LOCAL_CFLAGS        += -Wno-unused-parameter -Wno-unused-result
+LOCAL_SRC_FILES     := agm_shared_memory_test.c
+
+LOCAL_HEADER_LIBRARIES := \
+    libagm_headers \
+    libacdb_headers
+
+#if android version is R, refer to qtitinyxx otherwise use upstream ones
+#This assumes we would be using AR code only for Android R and subsequent versions.
+ifneq ($(filter 11 R, $(PLATFORM_VERSION)),)
+LOCAL_SHARED_LIBRARIES += libqti-tinyalsa
+else
+LOCAL_SHARED_LIBRARIES += liboss_tinyalsa
+endif
+
+LOCAL_SHARED_LIBRARIES += \
+    libagmmixer
+
+include $(BUILD_EXECUTABLE)

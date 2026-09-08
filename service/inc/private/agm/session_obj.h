@@ -41,6 +41,7 @@
 #include <agm/agm_priv.h>
 #include <agm/metadata.h>
 #include <agm/graph.h>
+#include "gsl_shmem_mgr.h"
 
 enum aif_state {
     AIF_CLOSED,
@@ -109,6 +110,7 @@ struct session_pool {
     pthread_mutex_t lock;
 };
 
+
 int session_obj_init();
 int session_obj_deinit();
 void session_obj_ssr_cleanup(void);
@@ -146,6 +148,15 @@ int session_obj_set_sess_aif_params(struct session_obj *sess_obj,
                              void *payload, size_t size);
 int session_obj_get_sess_params(struct session_obj *sess_obj,
                              void *payload, size_t size);
+int session_obj_set_params_with_shmem_by_tag(struct gsl_shmem_alloc_data *shmem,
+                             uint32_t tag_id,
+                             struct agm_key_vector_gsl *target_gkv,
+                             size_t payload_size,
+                             uint32_t payload_offset,
+                             size_t alloc_size);
+int session_obj_get_params_with_tag(uint32_t tag_id,
+                             struct agm_key_vector_gsl *target_gkv,
+                             void *payload, size_t *payload_size);
 int session_obj_set_sess_aif_params_with_tag(struct session_obj *sess_obj,
                              uint32_t aif_id,
                              struct agm_tag_config *tag_config);

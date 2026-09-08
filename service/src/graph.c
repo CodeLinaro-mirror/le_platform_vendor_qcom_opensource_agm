@@ -43,6 +43,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include "gsl_intf.h"
+#include "gsl_shmem_mgr.h"
 #include <agm/graph.h>
 #include <agm/graph_module.h>
 #include <agm/metadata.h>
@@ -1166,6 +1167,55 @@ int graph_set_config(struct graph_obj *graph_obj, void *payload,
     return ret;
 }
 
+int graph_set_config_with_shmem(struct graph_obj *graph_obj,
+                                struct gsl_shmem_alloc_data *shmem,
+                                uint32_t tag_id,
+                                uint32_t payload_size,
+                                uint32_t payload_offset,
+                                size_t alloc_size)
+{
+    int ret = 0;
+    struct gsl_shmem_alloc_data tagged_shmem;
+
+    if ((graph_obj == NULL) || (shmem == NULL) || (shmem->v_addr == NULL) ||
+        (tag_id == 0) || (payload_size == 0) || (alloc_size == 0)) {
+        AGM_LOGE("invalid graph object, tag, or shared memory handle\n");
+        return -EINVAL;
+    }
+
+    if ((payload_offset > alloc_size) ||
+        ((size_t)payload_size > (alloc_size - payload_offset))) {
+        AGM_LOGE("shmem payload range exceeds allocation: offset %u size %u alloc_size %zu\n",
+                 payload_offset, payload_size, alloc_size);
+        return -EINVAL;
+    }
+
+    tagged_shmem = *shmem;
+    tagged_shmem.spf_addr += payload_offset;
+    tagged_shmem.v_addr = (uint8_t *)shmem->v_addr + payload_offset;
+    if (tagged_shmem.spf_addr < shmem->spf_addr) {
+        AGM_LOGE("invalid payload offset overflow, base 0x%llx offset 0x%x\n",
+                 (unsigned long long)shmem->spf_addr, payload_offset);
+        return -EINVAL;
+    }
+
+    pthread_mutex_lock(&graph_obj->lock);
+    AGM_LOGD("entry graph_handle %p tag_id 0x%x mem_map_handle 0x%x payload_addr 0x%llx payload_size %u",
+             graph_obj->graph_handle, tag_id, tagged_shmem.spf_mmap_handle,
+             (unsigned long long)tagged_shmem.spf_addr, payload_size);
+    ret = gsl_set_tagged_custom_config_v2(graph_obj->graph_handle, tag_id,
+            tagged_shmem.spf_mmap_handle, tagged_shmem.spf_addr,
+            tagged_shmem.v_addr, payload_size);
+    if (ret != 0) {
+        ret = ar_err_get_lnx_err_code(ret);
+        AGM_LOGE("graph_set_config_with_shmem failed %d\n", ret);
+    }
+
+    pthread_mutex_unlock(&graph_obj->lock);
+    AGM_LOGD("exit, graph handle %p, ret %d", graph_obj->graph_handle, ret);
+    return ret;
+}
+
 int graph_get_config(struct graph_obj *graph_obj, void *payload,
                      size_t payload_size)
 {
@@ -1186,6 +1236,43 @@ int graph_get_config(struct graph_obj *graph_obj, void *payload,
 
     return ret;
 }
+
+int graph_get_config_with_tag(struct graph_obj *graph_obj, uint32_t tag_id,
+                              void *payload, size_t *payload_size)
+{
+    int ret = 0;
+    uint32_t gsl_payload_size = 0;
+
+    if ((graph_obj == NULL) || (tag_id == 0) ||
+        (payload == NULL) || (payload_size == NULL) || (*payload_size == 0)) {
+        AGM_LOGE("invalid graph object, tag, or payload\n");
+        return -EINVAL;
+    }
+
+    if (*payload_size > UINT32_MAX) {
+        AGM_LOGE("payload size %zu exceeds uint32 max\n", *payload_size);
+        return -EINVAL;
+    }
+
+    gsl_payload_size = (uint32_t)*payload_size;
+
+    pthread_mutex_lock(&graph_obj->lock);
+    AGM_LOGD("entry graph_handle %p tag_id 0x%x payload_size %u",
+             graph_obj->graph_handle, tag_id, gsl_payload_size);
+    ret = gsl_get_tagged_custom_config(graph_obj->graph_handle, tag_id,
+            payload, &gsl_payload_size);
+    if (ret != 0) {
+        ret = ar_err_get_lnx_err_code(ret);
+        AGM_LOGE("graph_get_config_with_tag failed %d\n", ret);
+    } else {
+        *payload_size = gsl_payload_size;
+    }
+
+    pthread_mutex_unlock(&graph_obj->lock);
+    AGM_LOGD("exit, graph handle %p, ret %d", graph_obj->graph_handle, ret);
+    return ret;
+}
+
 
 int graph_set_config_with_tag(struct graph_obj *graph_obj,
                               struct agm_key_vector_gsl *gkv,

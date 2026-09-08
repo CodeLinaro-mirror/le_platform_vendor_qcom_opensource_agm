@@ -26,9 +26,9 @@
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
-** SPDX-License-Identifier: BSD-3-Clause-Clear
+** Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+** SPDX-License-Identifier: BSD-3-Clause
 */
 
 #include <errno.h>
@@ -2358,5 +2358,108 @@ int agm_mixer_get_buf_tstamp(struct mixer *mixer, int device, enum stream_type s
     *tstamp = ts;
 exit:
     free(mixer_str);
+    return ret;
+}
+
+
+static struct mixer_ctl *agm_mixer_get_global_ctl(struct mixer *mixer,
+                                                  const char *control)
+{
+    struct mixer_ctl *ctl;
+
+    ctl = mixer_get_ctl_by_name(mixer, control);
+    if (!ctl)
+        printf("Invalid mixer control: %s\n", control);
+
+    return ctl;
+}
+
+int agm_mixer_shmem_alloc(struct mixer *mixer, struct agm_shmem_info *info)
+{
+    struct mixer_ctl *ctl;
+    int ret;
+
+    if (!mixer || !info)
+        return -EINVAL;
+
+    ctl = agm_mixer_get_global_ctl(mixer, "ShmemAlloc");
+    if (!ctl)
+        return ENOENT;
+
+    ret = mixer_ctl_set_array(ctl, info, sizeof(*info));
+    if (ret)
+        return ret;
+
+    return mixer_ctl_get_array(ctl, info, sizeof(*info));
+}
+
+int agm_mixer_shmem_free(struct mixer *mixer, uint32_t spf_mem_handle)
+{
+    struct mixer_ctl *ctl;
+
+    if (!mixer)
+        return -EINVAL;
+
+    ctl = agm_mixer_get_global_ctl(mixer, "ShmemFree");
+    if (!ctl)
+        return ENOENT;
+
+    return mixer_ctl_set_array(ctl, &spf_mem_handle, sizeof(spf_mem_handle));
+}
+
+int agm_mixer_set_param_shmem_by_tag(struct mixer *mixer,
+                                     struct agm_tagged_shmem_config *cfg)
+{
+    struct mixer_ctl *ctl;
+    size_t cfg_size;
+
+    if (!mixer || !cfg || (cfg->num_gkvs == 0))
+        return -EINVAL;
+
+    ctl = agm_mixer_get_global_ctl(mixer, "setParamShmemTag");
+    if (!ctl)
+        return ENOENT;
+
+    cfg_size = AGM_TAGGED_SHMEM_CONFIG_SIZE(cfg->num_gkvs);
+    return mixer_ctl_set_array(ctl, cfg, cfg_size);
+}
+
+int agm_mixer_get_param_by_tag(struct mixer *mixer,
+                               struct agm_tagged_get_config *cfg,
+                               void *payload, size_t size)
+{
+    struct mixer_ctl *ctl;
+    uint8_t *mixer_payload;
+    size_t cfg_size, mixer_payload_size;
+    int ret;
+
+    if (!mixer || !cfg || (cfg->num_gkvs == 0) || !payload || size == 0)
+        return -EINVAL;
+
+    ctl = agm_mixer_get_global_ctl(mixer, "getParamTag");
+    if (!ctl)
+        return ENOENT;
+
+    cfg_size = AGM_TAGGED_GET_CONFIG_SIZE(cfg->num_gkvs);
+    mixer_payload_size = cfg_size + size;
+    mixer_payload = calloc(1, mixer_payload_size);
+    if (!mixer_payload)
+        return -ENOMEM;
+
+    memcpy(mixer_payload, cfg, cfg_size);
+    memcpy(mixer_payload + cfg_size, payload, size);
+
+    ret = mixer_ctl_set_array(ctl, mixer_payload, mixer_payload_size);
+    if (ret)
+        goto done;
+
+    ret = mixer_ctl_get_array(ctl, mixer_payload, mixer_payload_size);
+    if (ret)
+        goto done;
+
+    memcpy(payload, mixer_payload + cfg_size, size);
+
+done:
+    free(mixer_payload);
     return ret;
 }

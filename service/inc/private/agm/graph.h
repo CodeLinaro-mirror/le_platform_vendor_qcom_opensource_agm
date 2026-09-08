@@ -26,9 +26,9 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause
  *
  */
 
@@ -39,6 +39,7 @@
 #include <agm/device.h>
 #include <agm/session_obj.h>
 #include <agm/agm_priv.h>
+#include "gsl_shmem_mgr.h"
 
 #define ATTRIBUTES_DATA_MODE_MASK 0x3
 #define DATA_MODE_FLAG_SHMEM 0x0 /**< shared memory mode */
@@ -152,6 +153,28 @@ int graph_register_for_events(struct graph_obj *gph_obj,
  */
 int graph_set_config(struct graph_obj *gph_obj, void *payload,
                      size_t payload_size);
+
+/**
+ *\brief Set a tagged custom config on the graph using shared memory.
+ * The shared-memory allocation information is passed to GSL with the
+ * specified tag id. payload_offset selects the start of the module payload
+ * within the shared-memory buffer, and payload_size specifies the size to
+ * send to SPF.
+ *\param [in] graph_obj: associated graph obj.
+ *\param [in] shmem: shared-memory allocation data to pass to GSL.
+ *\param [in] tag_id: module tag id to target.
+ *\param [in] payload_size: payload size in bytes.
+ *\param [in] payload_offset: payload offset in shared memory.
+ *\param [in] alloc_size: total shared-memory allocation size in bytes.
+ *
+ * return AR_EOK on success, or error code otherwise.
+ */
+int graph_set_config_with_shmem(struct graph_obj *gph_obj,
+                                struct gsl_shmem_alloc_data *shmem,
+                                uint32_t tag_id,
+                                uint32_t payload_size,
+                                uint32_t payload_offset,
+                                size_t alloc_size);
 
 /**
  *\brief issue a prepare command to modules in the graph.
@@ -314,6 +337,21 @@ int graph_set_config_with_tag(struct graph_obj *gph_obj,
 
 int graph_get_config(struct graph_obj *graph_obj, void *payload,
                      size_t payload_size);
+
+/**
+ *\brief Get a tagged custom config from the graph.
+ * Issues a copy-based tagged GET through GSL for the specified tag id.
+ * The response is copied into payload and payload_size is updated with the
+ * returned size.
+ *\param [in] graph_obj: associated graph obj.
+ *\param [in] tag_id: module tag id to target.
+ *\param [in/out] payload: request/response payload buffer.
+ *\param [in/out] payload_size: input buffer size and returned response size.
+ *
+ * return AR_EOK on success, or error code otherwise.
+ */
+int graph_get_config_with_tag(struct graph_obj *graph_obj, uint32_t tag_id,
+                              void *payload, size_t *payload_size);
 
 int graph_set_cal(struct graph_obj *gph_obj,
                               struct agm_meta_data_gsl *meta_data);

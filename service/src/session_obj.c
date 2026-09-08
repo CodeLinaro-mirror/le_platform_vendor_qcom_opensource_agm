@@ -1556,6 +1556,172 @@ done:
    return ret;
 }
 
+static bool session_obj_gkv_has_duplicate_keys(const struct agm_key_vector_gsl *gkv)
+{
+   size_t i, j;
+
+   if (!gkv || !gkv->kv)
+       return true;
+
+   for (i = 0; i < gkv->num_kvs; i++) {
+       for (j = i + 1; j < gkv->num_kvs; j++) {
+           if (gkv->kv[i].key == gkv->kv[j].key)
+               return true;
+       }
+   }
+
+   return false;
+}
+
+static bool session_obj_gkv_matches(const struct agm_key_vector_gsl *graph_gkv,
+                                    const struct agm_key_vector_gsl *target_gkv)
+{
+   size_t i, j;
+   bool found;
+
+   if (!graph_gkv || !target_gkv || !graph_gkv->kv || !target_gkv->kv ||
+       (graph_gkv->num_kvs == 0) ||
+       (graph_gkv->num_kvs != target_gkv->num_kvs))
+       return false;
+
+   if (session_obj_gkv_has_duplicate_keys(graph_gkv) ||
+       session_obj_gkv_has_duplicate_keys(target_gkv))
+       return false;
+
+   for (i = 0; i < target_gkv->num_kvs; i++) {
+       found = false;
+       for (j = 0; j < graph_gkv->num_kvs; j++) {
+           if ((target_gkv->kv[i].key == graph_gkv->kv[j].key) &&
+               (target_gkv->kv[i].value == graph_gkv->kv[j].value)) {
+               found = true;
+               break;
+           }
+       }
+       if (!found)
+           return false;
+   }
+
+   return true;
+}
+
+static struct agm_meta_data_gsl *session_obj_get_matching_metadata_locked(
+        struct session_obj *sess_obj, struct agm_key_vector_gsl *target_gkv)
+{
+   struct agm_meta_data_gsl *merged_metadata = NULL;
+
+   merged_metadata = session_get_merged_metadata(sess_obj);
+   if (!merged_metadata)
+       return NULL;
+
+   if (session_obj_gkv_matches(&merged_metadata->gkv, target_gkv))
+       return merged_metadata;
+
+   if (merged_metadata != &sess_obj->sess_meta) {
+       metadata_free(merged_metadata);
+       free(merged_metadata);
+   }
+
+   return NULL;
+}
+
+static void session_obj_put_matching_metadata(struct session_obj *sess_obj,
+        struct agm_meta_data_gsl *metadata)
+{
+   if (metadata && (metadata != &sess_obj->sess_meta)) {
+       metadata_free(metadata);
+       free(metadata);
+   }
+}
+
+int session_obj_set_params_with_shmem_by_tag(struct gsl_shmem_alloc_data *shmem,
+    uint32_t tag_id, struct agm_key_vector_gsl *target_gkv,
+    size_t payload_size, uint32_t payload_offset, size_t alloc_size)
+{
+   struct session_obj *sess_obj = NULL;
+   struct agm_meta_data_gsl *matched_metadata = NULL;
+   struct listnode *node = NULL;
+   int ret = -ENOENT;
+
+   if (!sess_pool || !shmem || (tag_id == 0) || !target_gkv ||
+       !target_gkv->kv || (target_gkv->num_kvs == 0) ||
+       (payload_size == 0) || (alloc_size == 0))
+       return -EINVAL;
+
+   pthread_mutex_lock(&sess_pool->lock);
+   list_for_each(node, &sess_pool->session_list) {
+       sess_obj = node_to_item(node, struct session_obj, node);
+       if (!sess_obj)
+           continue;
+
+       pthread_mutex_lock(&sess_obj->lock);
+       if ((sess_obj->state != SESSION_CLOSED) && sess_obj->graph)
+           matched_metadata = session_obj_get_matching_metadata_locked(
+                   sess_obj, target_gkv);
+
+       if (matched_metadata) {
+           ret = graph_set_config_with_shmem(sess_obj->graph, shmem,
+                                             tag_id,
+                                             (uint32_t)payload_size,
+                                             payload_offset, alloc_size);
+           session_obj_put_matching_metadata(sess_obj, matched_metadata);
+           pthread_mutex_unlock(&sess_obj->lock);
+           pthread_mutex_unlock(&sess_pool->lock);
+           AGM_LOGI("set shmem params by tag 0x%x matched sess_id %u ret %d",
+                    tag_id, sess_obj->sess_id, ret);
+           return ret;
+       }
+       pthread_mutex_unlock(&sess_obj->lock);
+   }
+   pthread_mutex_unlock(&sess_pool->lock);
+
+   return ret;
+}
+
+int session_obj_get_params_with_tag(uint32_t tag_id,
+    struct agm_key_vector_gsl *target_gkv, void *payload, size_t *payload_size)
+{
+   struct session_obj *sess_obj = NULL;
+   struct agm_meta_data_gsl *matched_metadata = NULL;
+   struct listnode *node = NULL;
+   size_t query_size = 0;
+   int ret = -ENOENT;
+
+   if (!sess_pool || (tag_id == 0) || !target_gkv || !target_gkv->kv ||
+       (target_gkv->num_kvs == 0) || !payload || !payload_size ||
+       (*payload_size == 0))
+       return -EINVAL;
+
+   query_size = *payload_size;
+
+   pthread_mutex_lock(&sess_pool->lock);
+   list_for_each(node, &sess_pool->session_list) {
+       sess_obj = node_to_item(node, struct session_obj, node);
+       if (!sess_obj)
+           continue;
+
+       pthread_mutex_lock(&sess_obj->lock);
+       if ((sess_obj->state != SESSION_CLOSED) && sess_obj->graph)
+           matched_metadata = session_obj_get_matching_metadata_locked(
+                   sess_obj, target_gkv);
+
+       if (matched_metadata) {
+           *payload_size = query_size;
+           ret = graph_get_config_with_tag(sess_obj->graph, tag_id, payload,
+                                           payload_size);
+           session_obj_put_matching_metadata(sess_obj, matched_metadata);
+           pthread_mutex_unlock(&sess_obj->lock);
+           pthread_mutex_unlock(&sess_pool->lock);
+           AGM_LOGI("get params by tag 0x%x matched sess_id %u ret %d",
+                    tag_id, sess_obj->sess_id, ret);
+           return ret;
+       }
+       pthread_mutex_unlock(&sess_obj->lock);
+   }
+   pthread_mutex_unlock(&sess_pool->lock);
+
+   return ret;
+}
+
 int session_obj_set_sess_aif_params(struct session_obj *sess_obj,
     uint32_t aif_id,
     void* payload, size_t size)

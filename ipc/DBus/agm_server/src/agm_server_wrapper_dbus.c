@@ -28,8 +28,8 @@
 **/
 
 /*
-** Changes from Qualcomm Innovation Center are provided under the following license:
-** Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+** Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 **
 ** Redistribution and use in source and binary forms, with or without
 ** modification, are permitted (subject to the limitations in the
@@ -71,6 +71,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <agm/agm_api.h>
 #include "agm-dbus-utils.h"
 #include "agm_server_wrapper_dbus.h"
@@ -95,6 +98,8 @@ typedef struct {
     agm_dbus_connection *conn;
     /* Hashmap containing all sessions info */
     GHashTable *sessions;
+    /* spf_mem_handle -> dup'ed fd kept alive for nonfd client path */
+    GHashTable *shmem_fd_map;
 } agm_module_dbus_data;
 
 /* Session specific data */
@@ -130,6 +135,54 @@ typedef struct {
 
 static agm_module_dbus_data *mdata = NULL;
 
+static bool agm_fd_is_mmap_candidate(int fd)
+{
+    struct stat st;
+
+    if ((fd < 0) || (fcntl(fd, F_GETFD) == -1))
+        return false;
+    if (fstat(fd, &st) != 0)
+        return false;
+
+    return !S_ISSOCK(st.st_mode);
+}
+
+static void agm_shmem_fd_close_value(gpointer data)
+{
+    int *fdp = (int *)data;
+
+    if (!fdp)
+        return;
+    if (*fdp >= 0)
+        close(*fdp);
+    free(fdp);
+}
+
+static int agm_shmem_fd_track_add(uint32_t spf_mem_handle, int fd)
+{
+    int *fdp = NULL;
+
+    if (!mdata || !mdata->shmem_fd_map || fd < 0)
+        return -EINVAL;
+
+    fdp = (int *)calloc(1, sizeof(*fdp));
+    if (!fdp)
+        return -ENOMEM;
+
+    *fdp = fd;
+    g_hash_table_replace(mdata->shmem_fd_map,
+                         GUINT_TO_POINTER(spf_mem_handle), fdp);
+    return 0;
+}
+
+static void agm_shmem_fd_track_remove(uint32_t spf_mem_handle)
+{
+    if (!mdata || !mdata->shmem_fd_map)
+        return;
+
+    g_hash_table_remove(mdata->shmem_fd_map, GUINT_TO_POINTER(spf_mem_handle));
+}
+
 enum AgmModuleMethods {
     AgmAifSetMediaConfig,
     AgmAifSetMetadata,
@@ -154,6 +207,10 @@ enum AgmModuleMethods {
     AgmSessionGetBufInfo,
     AgmGetBufferTimestamp,
     AgmDump,
+    AgmShmemBufAlloc,
+    AgmShmemBufFree,
+    AgmSetParamsWithShmemByTag,
+    AgmGetParamsWithTag,
     AgmSessionOpen,
     AgmDbusModuleMethodMax
 };
@@ -315,6 +372,18 @@ static void ipc_agm_get_hw_processed_buff_cnt(DBusConnection *conn,
 static void ipc_agm_get_buffer_timestamp(DBusConnection *conn,
                                          DBusMessage *msg,
                                          void *userdata);
+static void ipc_agm_shmem_buf_alloc(DBusConnection *conn,
+                                    DBusMessage *msg,
+                                    void *userdata);
+static void ipc_agm_shmem_buf_free(DBusConnection *conn,
+                                   DBusMessage *msg,
+                                   void *userdata);
+static void ipc_agm_set_params_with_shmem_by_tag(DBusConnection *conn,
+                                                 DBusMessage *msg,
+                                                 void *userdata);
+static void ipc_agm_get_params_with_tag(DBusConnection *conn,
+                                        DBusMessage *msg,
+                                        void *userdata);
 static void ipc_agm_session_register_cb(DBusConnection *conn,
                                         DBusMessage *msg,
                                         void *userdata);
@@ -355,6 +424,10 @@ static agm_dbus_method agm_dbus_module_methods[AgmDbusModuleMethodMax] = {
     {"AgmSessionGetBufInfo", "uu", ipc_agm_session_get_buf_info},
     {"AgmGetBufferTimestamp", "u", ipc_agm_get_buffer_timestamp},
     {"AgmDump", "(iuu)", ipc_agm_dump},
+    {"AgmShmemBufAlloc", "uu", ipc_agm_shmem_buf_alloc},
+    {"AgmShmemBufFree", "u", ipc_agm_shmem_buf_free},
+    {"AgmSetParamsWithShmemByTag", "ay", ipc_agm_set_params_with_shmem_by_tag},
+    {"AgmGetParamsWithTag", "ayuay", ipc_agm_get_params_with_tag},
     {"AgmSessionOpen", "uu", ipc_agm_session_open}
 };
 
@@ -2308,6 +2381,345 @@ static void ipc_agm_dump(DBusConnection *conn,
     dbus_message_unref(reply);
 }
 
+static void ipc_agm_shmem_buf_alloc(DBusConnection *conn,
+                                    DBusMessage *msg,
+                                    void *userdata)
+{
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i;
+    DBusMessageIter r_arg;
+    struct agm_shmem_info info;
+    uint32_t size = 0;
+    uint32_t cache = 0;
+    uint32_t ion_fd_reply = 0;
+    uint32_t service_pid = 0;
+    int stable_fd = -1;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_shmem_buf_alloc has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "ipc_agm_shmem_buf_alloc has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "uu")) {
+        AGM_LOGE("Invalid signature for ipc_agm_shmem_buf_alloc.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid signature for ipc_agm_shmem_buf_alloc.");
+        return;
+    }
+
+    memset(&info, 0, sizeof(info));
+    dbus_message_iter_get_basic(&arg_i, &size);
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_get_basic(&arg_i, &cache);
+    info.size = size;
+    info.cache = cache;
+    if (agm_shmem_buf_alloc(&info) != 0) {
+        AGM_LOGE("agm_shmem_buf_alloc failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_shmem_buf_alloc failed.");
+        return;
+    }
+
+    if (info.ion_fd > (uint32_t)INT_MAX ||
+        !agm_fd_is_mmap_candidate((int)info.ion_fd)) {
+        AGM_LOGE("%s: invalid/non-mmap fd %u for spf_handle 0x%x",
+                 __func__, info.ion_fd, info.spf_mem_handle);
+        agm_shmem_buf_free(info.spf_mem_handle);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "invalid shared-memory fd");
+        return;
+    }
+
+    stable_fd = dup((int)info.ion_fd);
+    if (stable_fd < 0) {
+        AGM_LOGE("%s: dup failed for ion_fd %u, errno %d",
+                 __func__, info.ion_fd, errno);
+        agm_shmem_buf_free(info.spf_mem_handle);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "failed to duplicate shared-memory fd");
+        return;
+    }
+    if (agm_shmem_fd_track_add(info.spf_mem_handle, stable_fd) != 0) {
+        AGM_LOGE("%s: failed to track stable fd %d for spf_handle 0x%x",
+                 __func__, stable_fd, info.spf_mem_handle);
+        close(stable_fd);
+        agm_shmem_buf_free(info.spf_mem_handle);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "failed to track shared-memory fd");
+        return;
+    }
+
+    ion_fd_reply = (uint32_t)stable_fd;
+    service_pid = (uint32_t)getpid();
+    reply = dbus_message_new_method_return(msg);
+    if (!reply) {
+        AGM_LOGE("%s: failed to allocate reply message", __func__);
+        agm_shmem_fd_track_remove(info.spf_mem_handle);
+        agm_shmem_buf_free(info.spf_mem_handle);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "failed to build reply");
+        return;
+    }
+
+    dbus_message_iter_init_append(reply, &r_arg);
+    if (!dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT32, &ion_fd_reply) ||
+        !dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT64, &info.spf_addr) ||
+        !dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT32,
+                                        &info.spf_mem_handle) ||
+        !dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT32,
+                                        &service_pid)) {
+        AGM_LOGE("%s: failed to append reply args", __func__);
+        dbus_message_unref(reply);
+        agm_shmem_fd_track_remove(info.spf_mem_handle);
+        agm_shmem_buf_free(info.spf_mem_handle);
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "failed to encode shared-memory reply");
+        return;
+    }
+
+    if (!dbus_connection_send(conn, reply, NULL)) {
+        AGM_LOGE("%s: dbus_connection_send failed", __func__);
+        agm_shmem_fd_track_remove(info.spf_mem_handle);
+        agm_shmem_buf_free(info.spf_mem_handle);
+    }
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_shmem_buf_free(DBusConnection *conn,
+                                   DBusMessage *msg,
+                                   void *userdata)
+{
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i;
+    uint32_t spf_mem_handle = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_shmem_buf_free has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "ipc_agm_shmem_buf_free has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "u")) {
+        AGM_LOGE("Invalid signature for ipc_agm_shmem_buf_free.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid signature for ipc_agm_shmem_buf_free.");
+        return;
+    }
+
+    dbus_message_iter_get_basic(&arg_i, &spf_mem_handle);
+    if (agm_shmem_buf_free(spf_mem_handle) != 0) {
+        AGM_LOGE("agm_shmem_buf_free failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_shmem_buf_free failed.");
+        return;
+    }
+
+    agm_shmem_fd_track_remove(spf_mem_handle);
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_set_params_with_shmem_by_tag(DBusConnection *conn,
+                                                 DBusMessage *msg,
+                                                 void *userdata)
+{
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, array_i;
+    struct agm_tagged_shmem_config *cfg = NULL;
+    char *value = NULL;
+    char **addr_value = &value;
+    int n_elements = 0;
+    size_t cfg_size = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_set_params_with_shmem_by_tag has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "ipc_agm_set_params_with_shmem_by_tag has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "ay")) {
+        AGM_LOGE("Invalid signature for ipc_agm_set_params_with_shmem_by_tag.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid signature for ipc_agm_set_params_with_shmem_by_tag.");
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    if (n_elements < (int)sizeof(*cfg)) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid tagged shmem config payload.");
+        return;
+    }
+
+    cfg = malloc(n_elements);
+    if (!cfg) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Failed to allocate tagged shmem config.");
+        return;
+    }
+    memcpy(cfg, value, n_elements);
+
+    if ((cfg->num_gkvs == 0) || (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS)) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid tagged shmem GKV count.");
+        free(cfg);
+        return;
+    }
+
+    cfg_size = AGM_TAGGED_SHMEM_CONFIG_SIZE(cfg->num_gkvs);
+    if (cfg_size > (size_t)n_elements) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid tagged shmem GKV payload.");
+        free(cfg);
+        return;
+    }
+
+    if (agm_set_params_with_shmem_by_tag(cfg) != 0) {
+        AGM_LOGE("agm_set_params_with_shmem_by_tag failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_set_params_with_shmem_by_tag failed.");
+        free(cfg);
+        return;
+    }
+
+    free(cfg);
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_get_params_with_tag(DBusConnection *conn,
+                                        DBusMessage *msg,
+                                        void *userdata)
+{
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, array_i, r_arg, r_array_i;
+    struct agm_tagged_get_config *cfg = NULL;
+    uint32_t size = 0;
+    void *payload = NULL;
+    uint8_t *payload_bytes = NULL;
+    char *cfg_value = NULL, *payload_value = NULL;
+    char **addr_cfg_value = &cfg_value;
+    char **addr_payload_value = &payload_value;
+    int cfg_elements = 0, payload_elements = 0;
+    size_t cfg_size = 0, payload_size = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_get_params_with_tag has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "ipc_agm_get_params_with_tag has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "ayuay")) {
+        AGM_LOGE("Invalid signature for ipc_agm_get_params_with_tag.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid signature for ipc_agm_get_params_with_tag.");
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_cfg_value, &cfg_elements);
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_get_basic(&arg_i, &size);
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_recurse(&arg_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_payload_value, &payload_elements);
+
+    if ((cfg_elements < (int)sizeof(*cfg)) || (size == 0) ||
+        (payload_elements <= 0) || ((uint32_t)payload_elements < size)) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid get params with tag payload.");
+        return;
+    }
+
+    cfg = malloc(cfg_elements);
+    payload = malloc(size);
+    if (!cfg || !payload) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Failed to allocate get params payload.");
+        free(cfg);
+        free(payload);
+        return;
+    }
+    memcpy(cfg, cfg_value, cfg_elements);
+    memcpy(payload, payload_value, size);
+
+    if ((cfg->num_gkvs == 0) || (cfg->num_gkvs > AGM_MAX_TAGGED_GKVS)) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid tagged get GKV count.");
+        free(cfg);
+        free(payload);
+        return;
+    }
+
+    cfg_size = AGM_TAGGED_GET_CONFIG_SIZE(cfg->num_gkvs);
+    if (cfg_size > (size_t)cfg_elements) {
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid tagged get GKV payload.");
+        free(cfg);
+        free(payload);
+        return;
+    }
+
+    payload_size = size;
+    if (agm_get_params_with_tag(cfg, payload, &payload_size) != 0) {
+        AGM_LOGE("agm_get_params_with_tag failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_get_params_with_tag failed.");
+        free(cfg);
+        free(payload);
+        return;
+    }
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_message_iter_init_append(reply, &r_arg);
+    dbus_message_iter_open_container(&r_arg, DBUS_TYPE_ARRAY, "y", &r_array_i);
+    payload_bytes = (uint8_t *)payload;
+    dbus_message_iter_append_fixed_array(&r_array_i, DBUS_TYPE_BYTE,
+                                         &payload_bytes, payload_size);
+    dbus_message_iter_close_container(&r_arg, &r_array_i);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+    free(cfg);
+    free(payload);
+}
+
 static void ipc_agm_get_hw_processed_buff_cnt(DBusConnection *conn,
                                               DBusMessage *msg,
                                               void *userdata) {
@@ -3473,6 +3885,7 @@ int ipc_agm_init() {
     }
     /* Zero fields the fail label touches. */
     mdata->sessions = NULL;
+    mdata->shmem_fd_map = NULL;
     mdata->conn = NULL;
     mdata->dbus_obj_path = NULL;
     mdata->dbus_obj_path =
@@ -3512,6 +3925,10 @@ int ipc_agm_init() {
                                             g_direct_equal,
                                             NULL,
                                             agm_free_session);
+    mdata->shmem_fd_map = g_hash_table_new_full(g_direct_hash,
+                                                g_direct_equal,
+                                                NULL,
+                                                agm_shmem_fd_close_value);
 
     dbus_bus_add_match(mdata->conn->conn,
                        "type='signal',"
@@ -3564,6 +3981,10 @@ fail:
         g_hash_table_unref(mdata->sessions);
         mdata->sessions = NULL;
     }
+    if (mdata->shmem_fd_map != NULL) {
+        g_hash_table_unref(mdata->shmem_fd_map);
+        mdata->shmem_fd_map = NULL;
+    }
     if (mdata->conn != NULL)
         agm_dbus_connection_free(mdata->conn);
     free(mdata->dbus_obj_path);
@@ -3600,8 +4021,16 @@ void ipc_agm_deinit() {
                                       NULL);
     }
 
-    g_hash_table_remove_all(mdata->sessions);
-    g_hash_table_unref(mdata->sessions);
+    if (mdata->sessions != NULL) {
+        g_hash_table_remove_all(mdata->sessions);
+        g_hash_table_unref(mdata->sessions);
+        mdata->sessions = NULL;
+    }
+    if (mdata->shmem_fd_map != NULL) {
+        g_hash_table_remove_all(mdata->shmem_fd_map);
+        g_hash_table_unref(mdata->shmem_fd_map);
+        mdata->shmem_fd_map = NULL;
+    }
 
     if (mdata->dbus_obj_path != NULL) {
         if (agm_dbus_remove_interface(mdata->conn,

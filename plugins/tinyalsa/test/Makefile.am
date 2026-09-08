@@ -39,6 +39,12 @@ agmhostless_SOURCES  = agmhostless.c
 agmhostless_la_CFLAGS = $(AM_CFLAGS)
 agmhostless_LDADD    = -ltinyalsa libagmmixer.la
 
+bin_PROGRAMS += agm_shared_memory_test
+agm_shared_memory_test_SOURCES  = agm_shared_memory_test.c
+
+agm_shared_memory_test_la_CFLAGS = $(AM_CFLAGS)
+agm_shared_memory_test_LDADD    = -ltinyalsa libagmmixer.la
+
 # install xml files under /etc
 root_etcdir      = "/etc"
 root_etc_SCRIPTS = backend_conf.xml
