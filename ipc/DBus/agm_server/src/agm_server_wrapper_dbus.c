@@ -62,7 +62,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "agm_server_wrapper_dbus"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <dbus/dbus.h>
 #include <stdlib.h>

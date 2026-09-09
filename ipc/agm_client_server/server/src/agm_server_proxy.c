@@ -20,7 +20,7 @@
 #include <../inc/agm_server_proxy.h>
 
 
-#define LOG_TAG "AGM_SERVER_PROXY"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <agm/utils.h>
 #ifndef AGM_MEMLOG_UNSUPPORTED

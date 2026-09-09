@@ -21,6 +21,11 @@ libagm_pcm_plugin_la_CFLAGS  = $(AM_CFLAGS)
 libagm_pcm_plugin_la_LDFLAGS = -avoid-version -shared -L$(top_builddir)/snd_parser/.libs
 libagm_pcm_plugin_la_LIBADD  = -ltinyalsa -lsndcardparser
 
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+AM_CFLAGS += -DAGM_AUDIO_LOG_UTIL_BRIDGE -DAGM_LOG_MODULE=MODULE_AGM_TINYALSA_PLUGIN
+libagm_pcm_plugin_la_LIBADD += -laudio_log_util
+endif
+
 if AGM_NO_IPC
 libagm_pcm_plugin_la_CFLAGS += -DAGM_NO_IPC
 libagm_pcm_plugin_la_LDFLAGS += -L$(top_builddir)/service/.libs
@@ -38,6 +43,9 @@ libtinycompress_module_agm_la_SOURCES = src/agm_compress_plugin.c
 libtinycompress_module_agm_la_CFLAGS  = $(AM_CFLAGS)
 libtinycompress_module_agm_la_LDFLAGS = -avoid-version -shared -L$(top_builddir)/snd_parser/.libs
 libtinycompress_module_agm_la_LIBADD  = -ltinyalsa -ltinycompress -lpthread -lsndcardparser
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libtinycompress_module_agm_la_LIBADD += -laudio_log_util
+endif
 if AGM_NO_IPC
 libtinycompress_module_agm_la_CFLAGS += -DAGM_NO_IPC
 libtinycompress_module_agm_la_LDFLAGS += -L$(top_builddir)/service/.libs
@@ -55,6 +63,9 @@ libagm_mixer_plugin_la_CFLAGS  = $(AM_CFLAGS)
 libagm_mixer_plugin_la_CFLAGS  += -D__unused=__attribute__\(\(__unused__\)\)
 libagm_mixer_plugin_la_LDFLAGS =-avoid-version -shared -L$(top_builddir)/snd_parser/.libs
 libagm_mixer_plugin_la_LIBADD  = -ltinyalsa -lsndcardparser $(GLIB_LIBS)
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libagm_mixer_plugin_la_LIBADD += -laudio_log_util
+endif
 if AGM_NO_IPC
 libagm_mixer_plugin_la_CFLAGS += -DAGM_NO_IPC
 libagm_mixer_plugin_la_LDFLAGS += -L$(top_builddir)/service/.libs

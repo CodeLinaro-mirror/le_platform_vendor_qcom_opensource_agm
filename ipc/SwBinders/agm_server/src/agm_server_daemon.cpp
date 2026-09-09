@@ -33,7 +33,7 @@
 ** SPDX-License-Identifier: BSD-3-Clause-Clear
 **/
 
-#define LOG_TAG "agm_server_daemon"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>

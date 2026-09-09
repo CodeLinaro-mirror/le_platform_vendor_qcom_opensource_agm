@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
-#define LOG_TAG "AgmIpc::ClientCallback"
+#define LOG_TAG "AGM: ipc_client"
 
 #include <agm/agm_api.h>
 #include <aidl/vendor/qti/hardware/agm/IAGM.h>
