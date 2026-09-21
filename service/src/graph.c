@@ -707,6 +707,9 @@ int graph_open(struct agm_meta_data_gsl *meta_data_kv,
                         goto free_graph_obj;
                     }
                     mod = mod_list->data;
+                    /* NO_HOST loopback: both HW EPs are bound via graph_add */
+                    if (sess_obj->stream_config.sess_mode == AGM_SESSION_NO_HOST)
+                        goto tag_list;
                     add_module = ADD_MODULE(*mod, dev_obj);
                     if (!add_module) {
                         AGM_LOGE("no memory to allocate add_module");

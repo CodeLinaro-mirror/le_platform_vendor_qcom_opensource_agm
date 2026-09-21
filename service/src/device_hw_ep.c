@@ -104,6 +104,8 @@ enum qaif_intf_idx {
     QAIF_4 = 4,
     QAIF_5 = 5,
     QAIF_6 = 6,
+    QAIF_7 = 7,
+    QAIF_8 = 8,
 };
 
 #define MAX_VIRTUAL_CHILDS 8
@@ -151,6 +153,10 @@ static int populate_hw_ep_intf_idx(hw_ep_info_t *hw_ep_info, char *intf_idx)
             cdc_dma_i2s_tdm_config->intf_idx = QAIF_5;
         else if (!strcmp(intf_idx, "6"))
             cdc_dma_i2s_tdm_config->intf_idx = QAIF_6;
+        else if (!strcmp(intf_idx, "7"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_7;
+        else if (!strcmp(intf_idx, "8"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_8;
         else {
              AGM_LOGE("No matching intf_idx found for QAIF\n");
              return -EINVAL;
