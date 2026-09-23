@@ -9,3 +9,7 @@ libagmclient_ladir = $(libdir)
 libagmclient_la_LDFLAGS = -ldl -lrt -shared -avoid-version
 libagmclient_la_SOURCES = src/agm_client_wrapper_dbus.cpp
 libagmclient_la_LDFLAGS += $(GLIB_LIBS) -lgobject-2.0 -lgio-2.0
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libagmclient_la_CPPFLAGS += -DAGM_AUDIO_LOG_UTIL_BRIDGE -DAGM_LOG_MODULE=MODULE_AGM_IPC_CLIENT
+libagmclient_la_LIBADD = -laudio_log_util
+endif

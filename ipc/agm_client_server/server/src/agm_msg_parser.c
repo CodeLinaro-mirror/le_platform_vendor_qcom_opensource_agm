@@ -15,7 +15,7 @@
 
 #include <agm/agm_api.h>
 
-#define LOG_TAG "AGM_SERVER_PROXY"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <agm/utils.h>
 #ifndef AGM_MEMLOG_UNSUPPORTED
@@ -398,7 +398,7 @@ static int agm_server_get_group_aif_info_list(const uint8_t* in, uint32_t in_len
     *out_len = sizeof(uint32_t) + (uint32_t)(tmp_count * sizeof(struct aif_info));
 
     for (size_t i = 0; i < tmp_count; i++) {
-    AGM_LOGE("%s:aif_info: [%zu] name='%s', dir=%d\n", __func__,
+    AGM_LOGD("%s:aif_info: [%zu] name='%s', dir=%d\n", __func__,
              i, tmp[i].aif_name, tmp[i].dir);
     }
     free(tmp);
@@ -408,13 +408,13 @@ static int agm_server_get_group_aif_info_list(const uint8_t* in, uint32_t in_len
 static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
                                         uint8_t* out, uint32_t* out_len)
 {
-    AGM_LOGE("agm_server_get_aif_info_list1 enter");
+    AGM_LOGD("agm_server_get_aif_info_list1 enter");
     if (in_len < 4) return -EINVAL;
     int ret =0;
     size_t aif_count=0;
     memcpy(&aif_count, in, 4);
 
-    AGM_LOGE("agm_server_get_aif_info_list1 enter %d",aif_count);
+    AGM_LOGD("agm_server_get_aif_info_list1 enter %d",aif_count);
 
     if (aif_count == 0){
         ret = agm_get_aif_info_list(NULL, &aif_count);
@@ -423,7 +423,7 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
 
         memcpy(out,&aif_count,4);
         *out_len = 4;
-        AGM_LOGE("agm_server_get_aif_info_list1 after %d",aif_count);
+        AGM_LOGD("agm_server_get_aif_info_list1 after %d",aif_count);
         return ret;
     }
 
@@ -431,8 +431,8 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
     if (!aif_list) return -ENOMEM;
 
     ret = agm_get_aif_info_list(aif_list, &aif_count);
-    AGM_LOGE("agm_server_get_aif_info_list1 2nd enter %d",aif_count);
-    AGM_LOGE("%s: Got %zu backends from dev:ret %d \n", __func__, aif_count,ret);
+    AGM_LOGD("agm_server_get_aif_info_list1 2nd enter %d",aif_count);
+    AGM_LOGD("%s: Got %zu backends from dev:ret %d \n", __func__, aif_count,ret);
 
     if (ret)
         goto done;
@@ -441,7 +441,7 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
     memcpy(out+4, aif_list, aif_count * (sizeof(struct aif_info)));
     *out_len = 4 + (aif_count * (sizeof(struct aif_info)));
     for (int i = 0; i < aif_count; i++) {
-        AGM_LOGE("%s: [%d] name='%s', dir=%d\n", __func__,
+        AGM_LOGD("%s: [%d] name='%s', dir=%d\n", __func__,
                  i, aif_list[i].aif_name, aif_list[i].dir);
     }
     done:
@@ -996,7 +996,7 @@ static int agm_server_session_prepare(const uint8_t* in, uint32_t in_len,
     }
 
     *out_len = 0;
-    AGM_LOGE("agm_session_prepare success with ret: %d", ret);
+    AGM_LOGI("agm_session_prepare success with ret: %d", ret);
     return ret;
 
 }
@@ -1219,7 +1219,7 @@ static int agm_server_session_register_cb(const uint8_t* in, uint32_t in_len,
     memcpy(mq_name,      in + sizeof(uint32_t)*2, 32);
     mq_name[31] = '\0';
 
-    AGM_LOGE("SESSION_REGISTER_CB: sid=%u evt_type=%u mq=%s", session_id, evt_type, mq_name);
+    AGM_LOGI("SESSION_REGISTER_CB: sid=%u evt_type=%u mq=%s", session_id, evt_type, mq_name);
 
     uint32_t slot = AGM_PROXY_MAX_SESSIONS;
     for (uint32_t i = 0; i < AGM_PROXY_MAX_SESSIONS; i++) {
@@ -1251,7 +1251,7 @@ static int agm_server_session_register_cb(const uint8_t* in, uint32_t in_len,
         g_server_cb_data[slot].mq_des = (mqd_t)-1;
         return ret;
     } else
-        AGM_LOGE("agm_session_register_cb(core) success: %d", ret);
+    AGM_LOGI("agm_session_register_cb(core) success: %d", ret);
 
     *out_len = 0;
     return 0;

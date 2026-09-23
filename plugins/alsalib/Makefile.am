@@ -19,6 +19,10 @@ endif
 
 if BUILD_ALSALIB
 
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+AM_CFLAGS += -DAGM_AUDIO_LOG_UTIL_BRIDGE -DAGM_LOG_MODULE=MODULE_AGM_ALSALIB_PLUGIN
+endif
+
 alsaplugindir = $(libdir)/alsa-lib
 alsaplugin_LTLIBRARIES      = libasound_module_pcm_agm.la
 libasound_module_pcm_agm_la_SOURCES   = src/agm_io_plugin.c
@@ -33,6 +37,9 @@ libasound_module_pcm_agm_la_LIBADD  = -lasound -lsndcardparser -lagm
 else
 libasound_module_pcm_agm_la_LDFLAGS += -L$(top_builddir)/ipc/DBus/agm_client/.libs
 libasound_module_pcm_agm_la_LIBADD  = -lasound -lsndcardparser -lagmclient
+endif
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libasound_module_pcm_agm_la_LIBADD += -laudio_log_util
 endif
 
 alsaplugin_LTLIBRARIES      += libasound_module_ctl_agm.la
@@ -49,6 +56,9 @@ libasound_module_ctl_agm_la_LIBADD  = -lasound -lsndcardparser -lagm
 else
 libasound_module_ctl_agm_la_LDFLAGS += -L$(top_builddir)/ipc/DBus/agm_client/.libs
 libasound_module_ctl_agm_la_LIBADD  = -lasound -lsndcardparser -lagmclient
+endif
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libasound_module_ctl_agm_la_LIBADD += -laudio_log_util
 endif
 
 endif

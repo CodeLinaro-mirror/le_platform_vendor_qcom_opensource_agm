@@ -24,3 +24,10 @@ agm_server_SOURCES = ./src/agm-server-daemon.c
 agm_server_CFLAGS = $(AM_CFLAGS) $(GLIB_CFLAGS) -DAGM_USE_SYSLOG -Wno-write-strings
 agm_server_LDADD = libagmserverwrapper.la $(GLIB_LIBS)
 agm_server_LDFLAGS = -ldl -shared -avoid-version
+
+if AGM_AUDIO_LOG_UTIL_BRIDGE
+libagmserverwrapper_la_CFLAGS += -DAGM_AUDIO_LOG_UTIL_BRIDGE -DAGM_LOG_MODULE=MODULE_AGM_IPC_SERVER
+libagmserverwrapper_la_LIBADD += -laudio_log_util
+agm_server_CFLAGS += -DAGM_AUDIO_LOG_UTIL_BRIDGE -DAGM_LOG_MODULE=MODULE_AGM_IPC_SERVER
+agm_server_LDADD += -laudio_log_util
+endif

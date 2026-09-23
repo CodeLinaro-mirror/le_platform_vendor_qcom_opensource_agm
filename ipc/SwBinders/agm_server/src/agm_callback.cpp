@@ -27,7 +27,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "agm_callback"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <stdlib.h>
 #include <utils/RefBase.h>

@@ -60,7 +60,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "agm_client_wrapper"
+#define LOG_TAG "AGM: ipc_client"
 
 #include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>

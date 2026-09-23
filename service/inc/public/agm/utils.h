@@ -32,7 +32,14 @@
 **/
 
 #ifndef __UTILS_H__
+#define __UTILS_H__
+
 #include "ar_osal_error.h"
+#include <string.h>
+
+#ifdef AGM_AUDIO_LOG_UTIL_BRIDGE
+#include "audio_log_util.h"
+#endif
 
 #ifdef AGM_USE_SYSLOG
 #include <stdint.h>
@@ -58,14 +65,50 @@
 #include <log/log.h>
 #endif
 
-#define AGM_LOGE(arg,...) ALOGE("%s: %d "  arg, __func__, __LINE__, ##__VA_ARGS__)
-#define AGM_LOGI(arg,...) ALOGI("%s: %d "  arg, __func__, __LINE__, ##__VA_ARGS__)
+#ifndef LOG_TAG
+#define LOG_TAG "AGM"
+#endif
+
+#ifdef AGM_AUDIO_LOG_UTIL_BRIDGE
+#ifndef AGM_LOG_MODULE
+#define AGM_LOG_MODULE MODULE_AGM_CORE
+#endif
+#endif
+
+static inline const char *agm_log_file_short(const char *file)
+{
+    const char *p = strrchr(file, '/');
+
+    return p ? p + 1 : file;
+}
+
+#ifdef AGM_AUDIO_LOG_UTIL_BRIDGE
+#define AGM_LOGE(arg,...) audio_log_logger(BASE_LOG_ERROR, AGM_LOG_MODULE, \
+                                "%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#define AGM_LOGI(arg,...) audio_log_logger(BASE_LOG_INFO, AGM_LOG_MODULE, \
+                                "%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#define AGM_LOGD(arg,...) audio_log_logger(BASE_LOG_DEBUG, AGM_LOG_MODULE, \
+                                "%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#define AGM_LOGV(arg,...) audio_log_logger(BASE_LOG_VERBOSE, AGM_LOG_MODULE, \
+                                "%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#else
+#define AGM_LOGE(arg,...) ALOGE("%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#define AGM_LOGI(arg,...) ALOGI("%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
 #ifdef AGM_LOG_DEBUG_ENABLE
-#define AGM_LOGD(arg,...) ALOGD("%s: %d "  arg, __func__, __LINE__, ##__VA_ARGS__)
-#define AGM_LOGV(arg,...) ALOGV("%s: %d "  arg, __func__, __LINE__, ##__VA_ARGS__)
+#define AGM_LOGD(arg,...) ALOGD("%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
+#define AGM_LOGV(arg,...) ALOGV("%s - :[%s:%d]: %s: " arg, LOG_TAG, \
+                                agm_log_file_short(__FILE__), __LINE__, __func__, ##__VA_ARGS__)
 #else
 #define AGM_LOGD(arg,...) do {} while (0)
 #define AGM_LOGV(arg,...) do {} while (0)
+#endif
 #endif
 
 /*convert osal error codes to lnx error codes*/

@@ -62,7 +62,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "agm_server_daemon"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <glib.h>
 #include <signal.h>

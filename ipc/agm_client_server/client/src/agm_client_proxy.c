@@ -1,7 +1,7 @@
 /*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
     SPDX-License-Identifier: BSD-3-Clause-Clear
 */
-#define LOG_TAG "AGM_CLIENT_PROXY"
+#define LOG_TAG "AGM: ipc_client"
 
 #include <stdlib.h>
 #include <string.h>
@@ -212,7 +212,7 @@ int agm_init()
 
 /* Do not free dev here: published as g_agm_client, freed in agm_deinit() */
     free(out_buf);
-    AGM_LOGE("AGM client initialized successfully, %d", rc);
+    AGM_LOGI("AGM client initialized successfully, %d", rc);
     return 0;
 }
 
@@ -506,10 +506,10 @@ int agm_session_aif_set_cal(uint32_t session_id,
             AGM_LOGE("agm_init failed rc=%d", rc);
             return rc;
         }
-        AGM_LOGE("agm_init done");
+    AGM_LOGI("agm_init done");
     } else {
         pthread_mutex_unlock(&g_mutex_open_cnt);
-        AGM_LOGE("agm_client already initialized");
+        AGM_LOGI("agm_client already initialized");
     }
 
     if(!cal_config){
@@ -555,10 +555,10 @@ int agm_session_get_params(uint32_t session_id, void* payload, size_t size)
             AGM_LOGE("agm_init failed rc=%d", rc);
             return rc;
         }
-        AGM_LOGE("agm_init done");
+    AGM_LOGI("agm_init done");
     } else {
         pthread_mutex_unlock(&g_mutex_open_cnt);
-        AGM_LOGE("agm_client already initialized");
+        AGM_LOGI("agm_client already initialized");
     }
 
     uint32_t payload_sz = (uint32_t)size;
@@ -627,10 +627,10 @@ int agm_aif_set_params(uint32_t aif_id,
             AGM_LOGE("agm_init failed rc=%d", rc);
             return rc;
         }
-        AGM_LOGE("agm_init done");
+    AGM_LOGI("agm_init done");
     } else {
         pthread_mutex_unlock(&g_mutex_open_cnt);
-        AGM_LOGE("agm_client already initialized");
+        AGM_LOGI("agm_client already initialized");
     }
 
     uint32_t payload_sz = (uint32_t)size;
@@ -705,7 +705,7 @@ int agm_session_get_buf_info(uint32_t session_id, struct agm_buf_info *buf_info,
     uint8_t *payload = out_buf + sizeof(agm_ipc_response_hdr_t);
     memcpy(buf_info, payload, sizeof(struct agm_buf_info));
 
-    AGM_LOGE("%s: session_id=%u, flag=%u, buf_info retrieved successfully\n",
+    AGM_LOGD("%s: session_id=%u, flag=%u, buf_info retrieved successfully\n",
              __func__, session_id, flag);
 
     free(out_buf);
@@ -752,7 +752,7 @@ int agm_session_set_loopback(uint32_t capture_session_id,
         return status;
     }
 
-    AGM_LOGE("%s: capture_session_id=%u, playback_session_id=%u, state=%d - success\n",
+    AGM_LOGD("%s: capture_session_id=%u, playback_session_id=%u, state=%d - success\n",
              __func__, capture_session_id, playback_session_id, state);
 
     free(out_buf);
@@ -799,7 +799,7 @@ int agm_session_set_ec_ref(uint32_t capture_session_id,
         return status;
     }
 
-    AGM_LOGE("%s: capture_session_id=%u, aif_id=%u, state=%d - success\n",
+    AGM_LOGD("%s: capture_session_id=%u, aif_id=%u, state=%d - success\n",
              __func__, capture_session_id, aif_id, state);
 
     free(out_buf);
@@ -853,7 +853,7 @@ int agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp)
     uint8_t *payload = out_buf + sizeof(agm_ipc_response_hdr_t);
     memcpy(timestamp, payload, sizeof(uint64_t));
 
-    AGM_LOGE("%s: session_id=%u, timestamp=%llu - success\n",
+    AGM_LOGD("%s: session_id=%u, timestamp=%llu - success\n",
              __func__, session_id, (unsigned long long)*timestamp);
 
     free(out_buf);

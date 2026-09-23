@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
-#define LOG_TAG "AgmIpc::Service"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <android/binder_manager.h>
 #include <android/binder_process.h>

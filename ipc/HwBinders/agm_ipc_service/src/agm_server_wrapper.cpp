@@ -32,7 +32,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
-#define LOG_TAG "agm_server_wrapper"
+#define LOG_TAG "AGM: ipc_server"
 #include "inc/agm_server_wrapper.h"
 #include <log/log.h>
 #include <cutils/list.h>
