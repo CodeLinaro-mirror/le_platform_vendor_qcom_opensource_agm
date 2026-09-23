@@ -34,6 +34,7 @@
 
 #include <malloc.h>
 #include <string.h>
+#include <stdbool.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
 #ifdef __QNX__
@@ -316,6 +317,29 @@ static void session_pool_free()
     }
     pthread_mutex_unlock(&sess_pool->lock);
     free(sess_pool);
+}
+
+bool agm_has_active_sessions(void)
+{
+    struct session_obj *sess_obj;
+    struct listnode *node;
+    int count = 0;
+
+    if (!sess_pool)
+        return false;
+
+    pthread_mutex_lock(&sess_pool->lock);
+    list_for_each(node, &sess_pool->session_list) {
+        sess_obj = node_to_item(node, struct session_obj, node);
+        pthread_mutex_lock(&sess_obj->lock);
+        if (sess_obj->state == SESSION_STARTED)
+            count++;
+        pthread_mutex_unlock(&sess_obj->lock);
+    }
+    pthread_mutex_unlock(&sess_pool->lock);
+    if (count)
+        AGM_LOGD("%s: active session count=%d", __func__, count);
+    return count > 0;
 }
 
 void session_obj_ssr_cleanup(void)

@@ -1228,6 +1228,13 @@ int agm_session_read_with_metadata(uint64_t hndl, struct agm_buff *buff,
                                     uint32_t *captured_size);
 
 /**
+ * \brief Return whether any session is currently in SESSION_STARTED state.
+ *
+ * \return true if any started session exists, false otherwise
+ */
+bool agm_has_active_sessions(void);
+
+/**
  * \brief Helps set config for non tunnel mode (rx and tx path)
  *
  * \param[in] handle: session handle returned from
