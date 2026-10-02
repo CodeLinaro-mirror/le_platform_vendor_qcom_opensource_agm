@@ -21,6 +21,10 @@ bin_PROGRAMS = agmplay
 agmplay_SOURCES  = agmplay.c
 
 agmplay_la_CFLAGS = $(AM_CFLAGS)
+agmplay_CFLAGS = $(AM_CFLAGS)
+if ENABLE_BOOTKPI_LOGGING
+agmplay_CFLAGS += -DAGM_ENABLE_BOOTKPI_LOGGING
+endif
 agmplay_LDADD    = -ltinyalsa libagmmixer.la
 
 bin_PROGRAMS += agmcap

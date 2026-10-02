@@ -43,10 +43,19 @@
 #include <agm/agm_api.h>
 #include "agmmixer.h"
 
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+#include <bootkpi/logging.h>
+#define TEST_BMETRICS_LOG(tag) bootkpi_log_line(tag)
+#endif
+
 #define ID_RIFF 0x46464952
 #define ID_WAVE 0x45564157
 #define ID_FMT  0x20746d66
 #define ID_DATA 0x61746164
+
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+#define AR_CHIME_MAX_WRITE_MARKERS 3U
+#endif
 
 struct riff_wave_header {
     uint32_t riff_id;
@@ -74,7 +83,11 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                  unsigned int channels, unsigned int rate, unsigned int bits,
                  unsigned int *device_kv, unsigned int stream_kv, unsigned int instance_kv,
                  unsigned int *devicepp_kv, struct chunk_fmt fmt, bool haptics, char **intf_name,
-                 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv);
+                 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+                 , bool kpi_logging
+#endif
+                 );
 
 void stream_close(int sig)
 {
@@ -98,7 +111,11 @@ static void usage(void)
            " [-vmid_kv] Uses the KV value from acdb. Assign 0 or leave blank for no vmid_kv,\n"
            " PVM - 0xDD000001, LA_GVM1 - 0xDD000002, LA_GVM2 - 0xDD000003, LA_GVM3 - 0xDD000004.\n"
            " 0: If clip bps is 32, and format is S32_LE\n"
-           " 1: If clip bps is 24, and format is S24_LE\n");
+           " 1: If clip bps is 24, and format is S24_LE\n"
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+           " [-kpi_logging] Emit Boot KPI markers\n"
+#endif
+    );
 }
 
 int main(int argc, char **argv)
@@ -122,8 +139,11 @@ int main(int argc, char **argv)
     char *filename;
     unsigned vmid_kv = 0;
     unsigned int offload_proc_kv = 0;
-    int more_chunks = 1, ret = 0;
+    int more_chunks = 1;
     bool is_24_LE = false;
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    bool kpi_logging = false;
+#endif
     unsigned int *devicepp_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
     unsigned int *device_kv = (unsigned int *) malloc(intf_num * sizeof(unsigned int));
 
@@ -271,6 +291,10 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 offload_proc_kv = convert_char_to_hex(*argv);
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+        } else if (strcmp(*argv, "-kpi_logging") == 0) {
+            kpi_logging = true;
+#endif
         } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
@@ -281,13 +305,25 @@ int main(int argc, char **argv)
     if (intf_name == NULL)
         return 1;
 
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    if (kpi_logging) {
+        bootkpi_log_init();
+        TEST_BMETRICS_LOG("audio_chime_file_opened");
+    }
+#endif
+
     printf("Stream kv= 0x%X, Instance kv = 0x%X\n",stream_kv,instance_kv);
     for (int intf_idx = 0; intf_idx < intf_num; intf_idx++) {
         printf("Device PP kv[%d]= 0x%X, Device kv[%d] = 0x%X\n VMID kv = 0x%X\n",
             intf_idx, devicepp_kv[intf_idx], intf_idx, device_kv[intf_idx], vmid_kv);
     }
     play_sample(file, card, device, usb_device, channels, rate, bits, device_kv, stream_kv,
-                 instance_kv, devicepp_kv, chunk_fmt, haptics, intf_name, intf_num, is_24_LE, vmid_kv, offload_proc_kv);
+                instance_kv, devicepp_kv, chunk_fmt, haptics, intf_name, intf_num,
+                is_24_LE, vmid_kv, offload_proc_kv
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+                , kpi_logging
+#endif
+                );
 
     fclose(file);
     if (device_kv)
@@ -304,7 +340,11 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                  unsigned int channels, unsigned int rate, unsigned int bits,
                  unsigned int *device_kv, unsigned int stream_kv, unsigned int instance_kv,
                  unsigned int *devicepp_kv, struct chunk_fmt fmt, bool haptics, char **intf_name,
-                 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv)
+                 int intf_num, bool is_24_LE, unsigned int vmid_kv, unsigned int offload_proc_kv
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+                 , bool kpi_logging
+#endif
+)
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -313,6 +353,9 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
     int playback_path, playback_value;
     int size, index, ret = 0;
     int num_read;
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    unsigned int marker_count = 0;
+#endif
     struct group_config *grp_config = NULL;
     struct device_config *dev_config = NULL;
     uint32_t miid = 0;
@@ -334,6 +377,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
     dev_config = (struct device_config *) malloc(intf_num * sizeof(struct device_config));
     if (!dev_config) {
         printf("Failed to allocate memory for dev config");
+        free(grp_config);
         return;
     }
 
@@ -358,6 +402,8 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
     mixer = mixer_open(card);
     if (!mixer) {
         printf("Failed to open mixer\n");
+        free(dev_config);
+        free(grp_config);
         return;
     }
 
@@ -500,6 +546,10 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                 device, pcm_get_error(pcm));
         goto err_close_mixer;
     }
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    if (kpi_logging)
+        TEST_BMETRICS_LOG("audio_chime_pcm_opened");
+#endif
 
     for (index = 0; index < intf_num; index++) {
         if (strstr(intf_name[index], "VIRT-") || (device_kv[index] == SPEAKER) || (device_kv[index] == HANDSET)) {
@@ -523,6 +573,10 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
         printf("start error\n");
         goto err_close_pcm;
     }
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    if (kpi_logging)
+        TEST_BMETRICS_LOG("audio_chime_pcm_started");
+#endif
 
     /* catch ctrl-c to shutdown cleanly */
     signal(SIGINT, stream_close);
@@ -534,10 +588,20 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
                 printf("Error playing sample\n");
                 break;
             }
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+            if (kpi_logging && marker_count < AR_CHIME_MAX_WRITE_MARKERS) {
+                TEST_BMETRICS_LOG("audio_chime_pcm_write");
+                marker_count++;
+            }
+#endif
         }
     } while (!close && num_read > 0);
 
     pcm_stop(pcm);
+#ifdef AGM_ENABLE_BOOTKPI_LOGGING
+    if (kpi_logging)
+        TEST_BMETRICS_LOG("audio_chime_pcm_closed");
+#endif
     /* disconnect pcm stream to audio intf */
     for (index = 0; index < intf_num; index++) {
         connect_agm_audio_intf_to_stream(mixer, device, intf_name[index], STREAM_PCM, false);
