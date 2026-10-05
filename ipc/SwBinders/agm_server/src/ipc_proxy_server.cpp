@@ -25,8 +25,6 @@
 ** WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-<<<<<<< HEAD   (8f100f Merge "agm:make agm applications compatiable with HGY")
-=======
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
@@ -60,7 +58,6 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
->>>>>>> CHANGE (292714 agm: ipc: SWBinders: protect handle by clbk_data_list_lock)
 **/
 
 #define LOG_TAG "ipc_proxy"
@@ -110,8 +107,6 @@ struct listnode clbk_data_list;
 pthread_mutex_t clbk_data_list_lock;
 bool clbk_data_list_init = false;
 extern pthread_mutex_t g_client_list_lock;
-
-android::sp<IAGMClient> clt_binder;
 
 using namespace android;
 
@@ -175,15 +170,40 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
 
         ~BpAgmService()
         {
-            android:: Parcel data, reply;
-
             AGM_LOGV("~BpAgmservice() destructor called\n");
-            data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
-            data.writeStrongBinder(IInterface::asBinder(clt_binder));
-            remote()->transact(UNREG_CLIENT, data, &reply);
-            AGM_LOGD("calling UNREG_CLIENT from BpAgmService\n");
         }
 
+    protected:
+        /*
+         * UNREG_CLIENT has to be sent here and not from the destructor:
+         * BpRefBase::onLastStrongRef() drops the strong reference on the
+         * server handle and the destructor only runs after that, by which
+         * point the binder driver rejects any transaction on the handle.
+         */
+        void onLastStrongRef(const void* id) override
+        {
+            if (clt_binder != NULL && remote() != NULL &&
+                                         remote()->isBinderAlive()) {
+                android::Parcel data, reply;
+                status_t status;
+
+                data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
+                data.writeStrongBinder(IInterface::asBinder(clt_binder));
+                status = remote()->transact(UNREG_CLIENT, data, &reply);
+                if (status != NO_ERROR)
+                    AGM_LOGE("UNREG_CLIENT failed, status %d\n", status);
+                else
+                    AGM_LOGD("calling UNREG_CLIENT from BpAgmService\n");
+            }
+            clt_binder.clear();
+            BpRefBase::onLastStrongRef(id);
+        }
+
+    private:
+        /* Token the server links to death to track this client */
+        android::sp<IAGMClient> clt_binder;
+
+    public:
         virtual int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
                                       struct agm_media_config *media_config)
         {

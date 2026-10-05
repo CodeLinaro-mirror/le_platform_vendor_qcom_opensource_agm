@@ -64,10 +64,19 @@ using namespace android;
 sp<server_death_notifier> Server_death_notifier = NULL;
 sp<IAgmService> agm_client = NULL;
 bool agm_server_died = false;
+static pthread_mutex_t agm_client_lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 android::sp<IAgmService> get_agm_server()
 {
+    android::sp<IAgmService> client;
+
+    /*
+     * Serialize first-time setup: a second BpAgmService created by a
+     * racing thread would send its own REG_CLIENT and then UNREG_CLIENT
+     * as soon as it is dropped.
+     */
+    pthread_mutex_lock(&agm_client_lock);
     if (agm_client == NULL) {
         AGM_LOGD("Agm client initialized\n");
         android:: sp<android::IBinder> binder =
@@ -80,7 +89,9 @@ android::sp<IAgmService> get_agm_server()
             AGM_LOGV("%s : server linked to death \n", __func__);
         }
     }
-    return agm_client;
+    client = agm_client;
+    pthread_mutex_unlock(&agm_client_lock);
+    return client;
 }
 
 server_death_notifier::server_death_notifier()
