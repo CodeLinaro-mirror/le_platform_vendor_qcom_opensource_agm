@@ -298,8 +298,3 @@ int AgmService::ipc_agm_session_get_available_frame_count(uint32_t session_id, u
     ALOGV("%s called\n", __func__);
     return agm_session_get_available_frame_count(session_id, payload);
 };
-
-int AgmService::ipc_agm_unreg_client() {
-	ALOGV("%s called\n",__func__);
-	return 0;
-}

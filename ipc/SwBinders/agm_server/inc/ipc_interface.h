@@ -122,7 +122,6 @@ class IAgmService: public ::android::IInterface
         virtual int ipc_agm_session_get_buf_info(uint32_t session_id,
                            struct agm_buf_info *buf_info, uint32_t flag) = 0;
         virtual int ipc_agm_session_get_available_frame_count(uint32_t session_id, uint32_t *frame_count) = 0;
-	virtual int ipc_agm_unreg_client() = 0;
 };
 
 class BnAgmService : public ::android::BnInterface<IAgmService> {

@@ -175,28 +175,14 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
 
         ~BpAgmService()
         {
-		//UNREG Binder transaction handled in virtual method ipc_agm_unreg_client()
+            android:: Parcel data, reply;
+
+            AGM_LOGV("~BpAgmservice() destructor called\n");
+            data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
+            data.writeStrongBinder(IInterface::asBinder(clt_binder));
+            remote()->transact(UNREG_CLIENT, data, &reply);
+            AGM_LOGD("calling UNREG_CLIENT from BpAgmService\n");
         }
-
-	virtual int ipc_agm_unreg_client()
-	{
-		android::Parcel data, reply;
-
-		AGM_LOGD("%s: enter\n", __func__);
-		if (clt_binder == nullptr) {
-			AGM_LOGD("%s: clt_binder null, skipping UNREG_CLIENT\n", __func__);
-			return 0;
-		}
-
-		data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
-		data.writeStrongBinder(IInterface::asBinder(clt_binder));
-		remote()->transact(UNREG_CLIENT, data, &reply);
-		clt_binder = nullptr;
-
-		AGM_LOGD("%s: UNREG_CLIENT sent, clt_binder cleared\n", __func__);
-		return 0;
-
-	}
 
         virtual int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
                                       struct agm_media_config *media_config)

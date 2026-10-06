@@ -139,15 +139,7 @@ int agm_init(){
 }
 
 int agm_deinit(){
-	/*agm_deinit in IPC happens in context of the server*/
-	AGM_LOGD("%s: enter, agm_server_died=%d\n", __func__, agm_server_died);
-	if (!agm_server_died) {
-		android::sp<IAgmService> agm_client = get_agm_server();
-		agm_client->ipc_agm_unreg_client();
-	} else {
-		AGM_LOGD("%s: server already dead, skipping unreg\n", __func__);
-	}
-	AGM_LOGD("%s: exit\n", __func__);
+     /*agm_deinit in IPC happens in context of the server*/
       return 0;
 }
 
