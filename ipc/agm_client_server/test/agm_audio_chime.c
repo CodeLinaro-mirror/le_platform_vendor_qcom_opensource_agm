@@ -55,6 +55,26 @@ struct wav_header {
     uint32_t data_sz;
 };
 
+struct riff_wave_header {
+    uint32_t riff_id;
+    uint32_t riff_sz;
+    uint32_t wave_id;
+};
+
+struct chunk_header {
+    uint32_t id;
+    uint32_t sz;
+};
+
+struct chunk_fmt {
+    uint16_t audio_format;
+    uint16_t num_channels;
+    uint32_t sample_rate;
+    uint32_t byte_rate;
+    uint16_t block_align;
+    uint16_t bits_per_sample;
+};
+
 static bool g_running = true;
 static uint8_t *g_audio_buf = NULL;
 static uint32_t g_session_id = 100;
@@ -64,6 +84,7 @@ static uint32_t g_sample_rate = 48000;
 static uint32_t g_bits_per_sample = 16;
 static uint32_t g_channels = 2;
 static uint32_t g_data_size = 0;
+static long g_wav_data_offset = 0;
 static uint32_t g_frame_period = 1024;
 static uint32_t g_frame_count = 4;
 static uint32_t g_record_time_sec = 10;  // Default recording time in seconds
@@ -113,24 +134,93 @@ static void signal_handler(int signum) {
     g_running = false;
 }
 
+static int skip_wav_chunk_payload(FILE *fp, uint32_t chunk_size) {
+    long skip = (long)chunk_size;
+
+    if (chunk_size & 1)
+        skip++;
+
+    if (fseek(fp, skip, SEEK_CUR) != 0) {
+        AGM_LOGE("Failed to skip chunk payload: %s", strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 static int parse_wav_header(FILE *fp, uint32_t *rate, uint32_t *bits, uint32_t *chs, uint32_t *size) {
-    struct wav_header header;
+    struct riff_wave_header riff;
+    struct chunk_header chunk;
+    struct chunk_fmt fmt = {0};
+    bool have_fmt = false;
+    bool have_data = false;
 
-    if (fread(&header, sizeof(struct wav_header), 1, fp) != 1) {
-        AGM_LOGE("Failed to read WAV header");
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        AGM_LOGE("Failed to rewind WAV file: %s", strerror(errno));
         return -1;
     }
 
-    if (header.riff_id != ID_RIFF || header.riff_fmt != ID_WAVE ||
-        header.fmt_id != ID_FMT || header.audio_format != FORMAT_PCM) {
-        AGM_LOGE("Invalid WAV format");
+    if (fread(&riff, sizeof(riff), 1, fp) != 1) {
+        AGM_LOGE("Failed to read RIFF/WAVE header");
         return -1;
     }
 
-    *rate = header.sample_rate;
-    *bits = header.bits_per_sample;
-    *chs = header.num_channels;
-    *size = header.data_sz;
+    if (riff.riff_id != ID_RIFF || riff.wave_id != ID_WAVE) {
+        AGM_LOGE("Invalid WAV file: missing RIFF/WAVE");
+        return -1;
+    }
+
+    while (fread(&chunk, sizeof(chunk), 1, fp) == 1) {
+        switch (chunk.id) {
+        case ID_FMT:
+            if (chunk.sz < sizeof(fmt)) {
+                AGM_LOGE("Invalid fmt chunk size: %u", chunk.sz);
+                return -1;
+            }
+
+            if (fread(&fmt, sizeof(fmt), 1, fp) != 1) {
+                AGM_LOGE("Failed to read fmt chunk");
+                return -1;
+            }
+
+            have_fmt = true;
+
+            if (chunk.sz > sizeof(fmt) &&
+                skip_wav_chunk_payload(fp, chunk.sz - sizeof(fmt)) != 0)
+                return -1;
+            break;
+
+        case ID_DATA:
+            g_wav_data_offset = ftell(fp);
+            if (g_wav_data_offset < 0) {
+                AGM_LOGE("Failed to capture data chunk offset");
+                return -1;
+            }
+            *size = chunk.sz;
+            have_data = true;
+            goto done;
+
+        default:
+            if (skip_wav_chunk_payload(fp, chunk.sz) != 0)
+                return -1;
+            break;
+        }
+    }
+
+done:
+    if (!have_fmt || !have_data) {
+        AGM_LOGE("Invalid WAV file: missing %s%s chunk",
+                 !have_fmt ? "fmt" : "",
+                 !have_fmt && !have_data ? " and data" : (!have_data ? "data" : ""));
+        return -1;
+    }
+
+    *rate = fmt.sample_rate;
+    *bits = fmt.bits_per_sample;
+    *chs = fmt.num_channels;
+
+    AGM_LOGD("Parsed WAV fmt: format=0x%04X rate=%u bits=%u channels=%u data_offset=%ld data_size=%u",
+             fmt.audio_format, *rate, *bits, *chs, g_wav_data_offset, *size);
 
     return 0;
 }
@@ -295,8 +385,20 @@ static int playback_audio(FILE *file, audio_format_t format, uint8_t dir)
 
     // Read until EOF
     size_t num_read = 0;
+    uint32_t bytes_remaining = (format == AUDIO_FORMAT_WAV) ? g_data_size : 0;
     for (;;) {
-        num_read = fread(g_audio_buf, 1, buffer_size, file);
+        size_t bytes_to_read = buffer_size;
+
+        if (format == AUDIO_FORMAT_WAV) {
+            if (bytes_remaining == 0) {
+                AGM_LOGI("Reached end of WAV data chunk");
+                break;
+            }
+            if (bytes_to_read > bytes_remaining)
+                bytes_to_read = bytes_remaining;
+        }
+
+        num_read = fread(g_audio_buf, 1, bytes_to_read, file);
         if (num_read == 0) {
             if (feof(file)) {
                 AGM_LOGI("Reached EOF");
@@ -312,6 +414,15 @@ static int playback_audio(FILE *file, audio_format_t format, uint8_t dir)
 
         if (bytes_to_write != num_read) {
             AGM_LOGD("Warning: Only wrote %zu of %zu bytes", bytes_to_write, num_read);
+        }
+
+        if (format == AUDIO_FORMAT_WAV) {
+            if (num_read > bytes_remaining) {
+                AGM_LOGE("Read beyond declared WAV data chunk");
+                ret = -EIO;
+                break;
+            }
+            bytes_remaining -= num_read;
         }
     }
     size_t cnt = agm_get_hw_processed_buff_cnt(g_handle, dir);
@@ -615,8 +726,8 @@ int main(int argc, char **argv) {
             fclose(file);
             return -1;
         }
-        AGM_LOGI("WAV header parsed: %u Hz, %u bits, %u channels, %u bytes",
-                 g_sample_rate, g_bits_per_sample, g_channels, g_data_size);
+        AGM_LOGI("WAV header parsed: %u Hz, %u bits, %u channels, %u bytes, data offset %ld",
+                 g_sample_rate, g_bits_per_sample, g_channels, g_data_size, g_wav_data_offset);
     }
     else if (mode == MODE_PLAYBACK) {
         fseek(file, 0, SEEK_END);
