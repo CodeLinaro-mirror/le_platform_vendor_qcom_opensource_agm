@@ -224,13 +224,17 @@ void agm_unregister_client(sp<IBinder> binder)
                     IInterface::asBinder(client_binder)->unlinkToDeath(handle->Client_death_notifier);
                 }
                 handle->Client_death_notifier.clear();
+                handle->Client_death_notifier = NULL;
                 AGM_LOGV("%s: unlink to death %d\n", __func__, handle->pid);
             }
             list_remove(node);
+            handle->binder = NULL;
             free(handle);
+            handle = NULL;
         }
     }
     AGM_LOGV("%s: exit\n", __func__);
+    client_binder = NULL;
     pthread_mutex_unlock(&g_client_list_lock);
 }
 

@@ -25,6 +25,8 @@
 ** WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+<<<<<<< HEAD   (8f100f Merge "agm:make agm applications compatiable with HGY")
+=======
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
@@ -58,6 +60,7 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+>>>>>>> CHANGE (292714 agm: ipc: SWBinders: protect handle by clbk_data_list_lock)
 **/
 
 #define LOG_TAG "ipc_proxy"
@@ -188,10 +191,11 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
 		data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
 		data.writeStrongBinder(IInterface::asBinder(clt_binder));
 		remote()->transact(UNREG_CLIENT, data, &reply);
+		clt_binder = nullptr;
 
-		clt_binder = NULL;
 		AGM_LOGD("%s: UNREG_CLIENT sent, clt_binder cleared\n", __func__);
 		return 0;
+
 	}
 
         virtual int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
