@@ -823,20 +823,23 @@ void ipc_cb (uint32_t session_id, struct agm_event_cb_params *event_params,
 {
     struct listnode *node = NULL;
     clbk_data *handle = NULL;
+    clbk_data *tmp = NULL;
 
     pthread_mutex_lock(&clbk_data_list_lock);
     list_for_each(node, &clbk_data_list) {
-        handle = node_to_item(node, clbk_data, list);
+        tmp = node_to_item(node, clbk_data, list);
         AGM_LOGV("%s: session_id %d, client_data %p\n",
-                   __func__, handle->session_id, handle->client_data);
-        if (handle != NULL && handle->session_id == session_id &&
-                              handle->client_data == client_data) {
+                   __func__, tmp->session_id, tmp->client_data);
+        if (tmp->session_id == session_id &&
+                              tmp->client_data == client_data) {
+            handle = tmp;
             AGM_LOGV("%s: Found handle %p\n", __func__, handle);
             break;
         }
     }
 
-    if (handle!= NULL) {
+    /* No entry: the client unregistered or died, drop the event */
+    if (handle != NULL) {
         sp<ICallback> cb_binder = handle->cb_binder;
         if (cb_binder == NULL) {
             AGM_LOGE("%s Invalid binder handle\n", __func__);

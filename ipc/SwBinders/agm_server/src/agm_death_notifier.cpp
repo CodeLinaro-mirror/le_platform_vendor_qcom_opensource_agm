@@ -60,6 +60,7 @@ pthread_mutex_t g_client_list_lock;
 bool g_client_list_init = false;
 
 extern struct listnode clbk_data_list;
+extern pthread_mutex_t clbk_data_list_lock;
 extern bool clbk_data_list_init;
 
 //initialize mutex
@@ -250,14 +251,33 @@ void client_death_notifier::binderDied(const wp<IBinder>& who)
         handle = node_to_item(node, client_info, list);
         if (IInterface::asBinder(handle->binder).get() == who.unsafe_get()) {
             if (clbk_data_list_init == true) {
+                struct listnode dead_list;
+
+                /*
+                 * Unlink the client's entries under clbk_data_list_lock.
+                 * ipc_cb() holds this lock while using an entry, so this
+                 * waits for an event in flight, and later events find no
+                 * entry and are dropped. Deregister from the sessions only
+                 * after unlocking: they take cb_pool_lock, which ipc_cb()
+                 * is called with.
+                 */
+                list_init(&dead_list);
+                pthread_mutex_lock(&clbk_data_list_lock);
                 list_for_each_safe(clbk_node, next, &clbk_data_list) {
                     clbk_data_obj_tmp = node_to_item(clbk_node, clbk_data, list);
                     if (clbk_data_obj_tmp->pid == handle->pid) {
-                        agm_session_register_cb(clbk_data_obj_tmp->session_id, NULL, clbk_data_obj_tmp->evnt, clbk_data_obj_tmp->client_data);
                         list_remove(&clbk_data_obj_tmp->list);
-                        clbk_data_obj_tmp->cb_binder = NULL;
-                        free(clbk_data_obj_tmp);
+                        list_add_tail(&dead_list, &clbk_data_obj_tmp->list);
                     }
+                }
+                pthread_mutex_unlock(&clbk_data_list_lock);
+
+                list_for_each_safe(clbk_node, next, &dead_list) {
+                    clbk_data_obj_tmp = node_to_item(clbk_node, clbk_data, list);
+                    agm_session_register_cb(clbk_data_obj_tmp->session_id, NULL, clbk_data_obj_tmp->evnt, clbk_data_obj_tmp->client_data);
+                    list_remove(&clbk_data_obj_tmp->list);
+                    clbk_data_obj_tmp->cb_binder = NULL;
+                    free(clbk_data_obj_tmp);
                 }
             }
 
