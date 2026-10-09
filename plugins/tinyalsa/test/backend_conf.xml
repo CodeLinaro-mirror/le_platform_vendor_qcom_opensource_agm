@@ -109,8 +109,8 @@
     <device name="PCM_DUMMY-RX-0" rate="48000" ch="1" bits="16" />
     <device name="PCM_DUMMY-TX-1" rate="48000" ch="1" bits="16" />
     <!-- QUATERNARY -->
-    <device name="TDM-LPAIF_RXTX-RX-PRIMARY" rate="48000" ch="32" bits="16" />
-    <device name="TDM-LPAIF_RXTX-TX-PRIMARY" rate="48000" ch="32" bits="16" />
+    <device name="QAIF-QAIF_AUD-RX-8" rate="48000" ch="8" bits="16" />
+    <device name="QAIF-QAIF_AUD-TX-8" rate="48000" ch="8" bits="16" />
     <!-- QUINARY -->
     <device name="TDM-LPAIF_VA-RX-PRIMARY" rate="48000" ch="16" bits="16" />
     <device name="TDM-LPAIF_VA-TX-PRIMARY" rate="48000" ch="16" bits="16" />
@@ -118,8 +118,8 @@
     <device name="TDM-LPAIF_WSA-RX-PRIMARY" rate="48000" ch="8" bits="16" />
     <device name="TDM-LPAIF_WSA-TX-PRIMARY" rate="48000" ch="8" bits="16" />
     <!-- SEP -->
-    <device name="TDM-LPAIF_AUD-RX-PRIMARY" rate="48000" ch="8" bits="16" />
-    <device name="TDM-LPAIF_AUD-TX-PRIMARY" rate="48000" ch="8" bits="16" />
+    <device name="QAIF-QAIF_AUD-RX-2" rate="48000" ch="8" bits="16" />
+    <device name="QAIF-QAIF_AUD-TX-2" rate="48000" ch="8" bits="16" />
     <!-- OCT -->
     <device name="TDM-LPAIF_WSA2-RX-PRIMARY" rate="48000" ch="8" bits="16" />
     <device name="TDM-LPAIF_WSA2-TX-PRIMARY" rate="48000" ch="8" bits="16" />
