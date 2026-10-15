@@ -141,6 +141,7 @@ enum AgmModuleMethods {
     AgmSessionGetParams,
     AgmSessionGetBufInfo,
     AgmGetBufferTimestamp,
+    AgmDump,
     AgmSessionOpen,
     AgmDbusModuleMethodMax
 };
@@ -151,11 +152,17 @@ enum AgmSessionMethods {
     AgmSessionStart,
     AgmSessionStop,
     AgmSessionPause,
+    AgmSessionFlush,
+    AgmSessionSuspend,
     AgmSessionResume,
     AgmSessionRead,
     AgmSessionWrite,
+    AgmSessionReadWithMetadata,
+    AgmSessionWriteWithMetadata,
     AgmSessionSetConfig,
+    AgmSessionSetNonTunnelModeConfig,
     AgmSessionEos,
+    AgmSetGaplessSessionMetadata,
     AgmSessionGetTime,
     AgmGetHwProcessedBufCount,
     AgmDbusSessionMethodMax
@@ -254,6 +261,12 @@ static void ipc_agm_session_stop(DBusConnection *conn,
 static void ipc_agm_session_pause(DBusConnection *conn,
                                   DBusMessage *msg,
                                   void *userdata);
+static void ipc_agm_session_flush(DBusConnection *conn,
+                                  DBusMessage *msg,
+                                  void *userdata);
+static void ipc_agm_session_suspend(DBusConnection *conn,
+                                    DBusMessage *msg,
+                                    void *userdata);
 static void ipc_agm_session_resume(DBusConnection *conn,
                                    DBusMessage *msg,
                                    void *userdata);
@@ -263,12 +276,24 @@ static void ipc_agm_session_read(DBusConnection *conn,
 static void ipc_agm_session_write(DBusConnection *conn,
                                   DBusMessage *msg,
                                   void *userdata);
+static void ipc_agm_session_read_with_metadata(DBusConnection *conn,
+                                               DBusMessage *msg,
+                                               void *userdata);
+static void ipc_agm_session_write_with_metadata(DBusConnection *conn,
+                                                DBusMessage *msg,
+                                                void *userdata);
 static void ipc_agm_session_set_config(DBusConnection *conn,
                                        DBusMessage *msg,
                                        void *userdata);
+static void ipc_agm_session_set_non_tunnel_mode_config(DBusConnection *conn,
+                                                       DBusMessage *msg,
+                                                       void *userdata);
 static void ipc_agm_session_eos(DBusConnection *conn,
                                 DBusMessage *msg,
                                 void *userdata);
+static void ipc_agm_set_gapless_session_metadata(DBusConnection *conn,
+                                                 DBusMessage *msg,
+                                                 void *userdata);
 static void ipc_agm_get_session_time(DBusConnection *conn,
                                      DBusMessage *msg,
                                      void *userdata);
@@ -284,6 +309,9 @@ static void ipc_agm_session_register_cb(DBusConnection *conn,
 static void ipc_agm_session_deregister_cb(DBusConnection *conn,
                                           DBusMessage *msg,
                                           void *userdata);
+static void ipc_agm_dump(DBusConnection *conn,
+                         DBusMessage *msg,
+                         void *userdata);
 static void ses_write_done(agm_session_data *ses_data, uint32_t status);
 static void ses_read_done(agm_session_data *ses_data, uint32_t status);
 
@@ -314,6 +342,7 @@ static agm_dbus_method agm_dbus_module_methods[AgmDbusModuleMethodMax] = {
     {"AgmSessionGetParams", "uuay", ipc_agm_session_get_params},
     {"AgmSessionGetBufInfo", "uu", ipc_agm_session_get_buf_info},
     {"AgmGetBufferTimestamp", "u", ipc_agm_get_buffer_timestamp},
+    {"AgmDump", "(iuu)", ipc_agm_dump},
     {"AgmSessionOpen", "uu", ipc_agm_session_open}
 };
 
@@ -323,11 +352,20 @@ static agm_dbus_method agm_dbus_session_methods[AgmDbusSessionMethodMax] = {
     {"AgmSessionStart", "", ipc_agm_session_start},
     {"AgmSessionStop", "", ipc_agm_session_stop},
     {"AgmSessionPause", "", ipc_agm_session_pause},
+    {"AgmSessionFlush", "", ipc_agm_session_flush},
+    {"AgmSessionSuspend", "", ipc_agm_session_suspend},
     {"AgmSessionResume", "", ipc_agm_session_resume},
     {"AgmSessionRead", "u", ipc_agm_session_read},
     {"AgmSessionWrite", "uay", ipc_agm_session_write},
+    {"AgmSessionReadWithMetadata", "u(tuuayuay(iuu))",
+                                      ipc_agm_session_read_with_metadata},
+    {"AgmSessionWriteWithMetadata", "(tuuayuay(iuu))",
+                                       ipc_agm_session_write_with_metadata},
     {"AgmSessionSetConfig", "(uuu)(uu)ay", ipc_agm_session_set_config},
+    {"AgmSessionSetNonTunnelModeConfig", "(uuuu)(uuuu)(uuu)(uuu)ay",
+                                         ipc_agm_session_set_non_tunnel_mode_config},
     {"AgmSessionEos", "", ipc_agm_session_eos},
+    {"AgmSetGaplessSessionMetadata", "uu", ipc_agm_set_gapless_session_metadata},
     {"AgmSessionGetTime", "", ipc_agm_get_session_time},
     {"AgmGetHwProcessedBufCount", "u", ipc_agm_get_hw_processed_buff_cnt}
 };
@@ -2084,6 +2122,53 @@ static void ipc_agm_get_buffer_timestamp(DBusConnection *conn,
     dbus_message_unref(reply);
 }
 
+static void ipc_agm_dump(DBusConnection *conn,
+                         DBusMessage *msg,
+                         void *userdata) {
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, struct_i;
+    struct agm_dump_info dump_info;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_dump has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "ipc_agm_dump has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "(iuu)")) {
+        AGM_LOGE("Invalid signature for ipc_agm_dump.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid signature for ipc_agm_dump.");
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &dump_info.signal);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &dump_info.pid);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &dump_info.uid);
+
+    if (agm_dump(&dump_info)) {
+        AGM_LOGE("agm_dump failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_dump failed.");
+        return;
+    }
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
 static void ipc_agm_get_hw_processed_buff_cnt(DBusConnection *conn,
                                               DBusMessage *msg,
                                               void *userdata) {
@@ -2210,6 +2295,13 @@ static void ipc_agm_session_set_config(DBusConnection *conn,
     dbus_message_iter_next(&arg_i);
     dbus_message_iter_recurse(&arg_i, &array_i);
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    if (n_elements < 0 ||
+        (size_t)n_elements != sizeof(struct agm_session_config)) {
+        AGM_LOGE("Invalid session config size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid session config size.");
+        return;
+    }
     memcpy(&session_config, value, n_elements);
 
     if (agm_session_set_config(ses_data->handle,
@@ -2219,6 +2311,111 @@ static void ipc_agm_session_set_config(DBusConnection *conn,
         AGM_LOGE("agm_session_set_config failed.");
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                             "agm_session_set_config failed.");
+        return;
+    }
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_session_set_non_tunnel_mode_config(DBusConnection *conn,
+                                                       DBusMessage *msg,
+                                                       void *userdata) {
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, array_i, struct_i;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+    char *value = NULL;
+    char **addr_value = &value;
+    int n_elements = 0;
+    struct agm_session_config session_config;
+    struct agm_media_config in_media_config;
+    struct agm_media_config out_media_config;
+    struct agm_buffer_config in_buffer_config;
+    struct agm_buffer_config out_buffer_config;
+    uint32_t tmp_size = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_session_set_non_tunnel_mode_config has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+              "ipc_agm_session_set_non_tunnel_mode_config has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "(uuuu)(uuuu)(uuu)(uuu)ay")) {
+        AGM_LOGE("Invalid signature for ipc_agm_session_set_non_tunnel_mode_config.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+          "Invalid signature for ipc_agm_session_set_non_tunnel_mode_config.");
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &in_media_config.rate);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &in_media_config.channels);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &in_media_config.format);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &in_media_config.data_format);
+
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &out_media_config.rate);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &out_media_config.channels);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &out_media_config.format);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &out_media_config.data_format);
+
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &in_buffer_config.count);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &tmp_size);
+    in_buffer_config.size = tmp_size;
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &tmp_size);
+    in_buffer_config.max_metadata_size = tmp_size;
+
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &out_buffer_config.count);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &tmp_size);
+    out_buffer_config.size = tmp_size;
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &tmp_size);
+    out_buffer_config.max_metadata_size = tmp_size;
+
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_recurse(&arg_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    if (n_elements < 0 ||
+        (size_t)n_elements != sizeof(struct agm_session_config)) {
+        AGM_LOGE("Invalid session config size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                        "Invalid session config size.");
+        return;
+    }
+    memcpy(&session_config, value, n_elements);
+
+    if (agm_session_set_non_tunnel_mode_config(ses_data->handle,
+                                               &session_config,
+                                               &in_media_config,
+                                               &out_media_config,
+                                               &in_buffer_config,
+                                               &out_buffer_config)) {
+        AGM_LOGE("agm_session_set_non_tunnel_mode_config failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                     "agm_session_set_non_tunnel_mode_config failed.");
         return;
     }
 
@@ -2248,6 +2445,53 @@ static void ipc_agm_session_eos(DBusConnection *conn,
     }
 
     AGM_LOGV("%s : ", __func__);
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_set_gapless_session_metadata(DBusConnection *conn,
+                                                 DBusMessage *msg,
+                                                 void *userdata) {
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+    uint32_t type = 0;
+    uint32_t silence = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_set_gapless_session_metadata has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                       "ipc_agm_set_gapless_session_metadata has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "uu")) {
+        AGM_LOGE("Invalid signature for ipc_agm_set_gapless_session_metadata.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+               "Invalid signature for ipc_agm_set_gapless_session_metadata.");
+        return;
+    }
+
+    dbus_message_iter_get_basic(&arg_i, &type);
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_get_basic(&arg_i, &silence);
+
+    if (agm_set_gapless_session_metadata(ses_data->handle,
+            (enum agm_gapless_silence_type)type, silence)) {
+        AGM_LOGE("agm_set_gapless_session_metadata failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_set_gapless_session_metadata failed.");
+        return;
+    }
 
     reply = dbus_message_new_method_return(msg);
     dbus_connection_send(conn, reply, NULL);
@@ -2377,6 +2621,276 @@ static void ipc_agm_session_read(DBusConnection *conn,
     return;
 }
 
+static void ipc_agm_session_write_with_metadata(DBusConnection *conn,
+                                                DBusMessage *msg,
+                                                void *userdata) {
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, r_arg, struct_i, array_i, alloc_i;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+    struct agm_buff buff = {0};
+    size_t consumed_size = 0;
+    uint32_t consumed_size_u32 = 0;
+    uint8_t *value = NULL;
+    uint8_t **addr_value = &value;
+    uint8_t *metadata = NULL;
+    uint8_t **metadata_value = &metadata;
+    int n_elements = 0;
+    int metadata_elements = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_session_write_with_metadata has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                      "ipc_agm_session_write_with_metadata has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "(tuuayuay(iuu))")) {
+        AGM_LOGE("Invalid signature for ipc_agm_session_write_with_metadata.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+              "Invalid signature for ipc_agm_session_write_with_metadata.");
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.timestamp);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.flags);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.size);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    if (n_elements < 0 || (uint32_t)n_elements > buff.size) {
+        AGM_LOGE("Invalid buffer size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid buffer size.");
+        return;
+    }
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.metadata_size);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, metadata_value,
+                                      &metadata_elements);
+    if (metadata_elements < 0 ||
+        (uint32_t)metadata_elements > buff.metadata_size) {
+        AGM_LOGE("Invalid metadata size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid metadata size.");
+        return;
+    }
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.alloc_handle);
+    dbus_message_iter_next(&alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.alloc_size);
+    dbus_message_iter_next(&alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.offset);
+
+    if (buff.size > 0) {
+        buff.addr = (uint8_t *)calloc(1, buff.size);
+        if (buff.addr == NULL) {
+            AGM_LOGE("buff addr is NULL");
+            agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                                "buff addr is NULL");
+            return;
+        }
+        if (value != NULL && n_elements > 0)
+            memcpy(buff.addr, value, n_elements);
+    }
+
+    if (buff.metadata_size > 0) {
+        buff.metadata = (uint8_t *)calloc(1, buff.metadata_size);
+        if (buff.metadata == NULL) {
+            AGM_LOGE("metadata is NULL");
+            agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                                "metadata is NULL");
+            free(buff.addr);
+            return;
+        }
+        if (metadata != NULL && metadata_elements > 0)
+            memcpy(buff.metadata, metadata, metadata_elements);
+    }
+
+    if (agm_session_write_with_metadata(ses_data->handle,
+                                        &buff,
+                                        &consumed_size)) {
+        AGM_LOGE("agm_session_write_with_metadata failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_session_write_with_metadata failed.");
+        free(buff.addr);
+        free(buff.metadata);
+        return;
+    }
+
+    consumed_size_u32 = consumed_size;
+    reply = dbus_message_new_method_return(msg);
+    dbus_message_iter_init_append(reply, &r_arg);
+    dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT32,
+                                   &consumed_size_u32);
+    dbus_connection_send(conn, reply, NULL);
+    free(buff.addr);
+    free(buff.metadata);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_session_read_with_metadata(DBusConnection *conn,
+                                               DBusMessage *msg,
+                                               void *userdata) {
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, r_arg, struct_i, array_i, alloc_i;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+    struct agm_buff buff = {0};
+    uint32_t captured_size = 0;
+    uint8_t *value = NULL;
+    uint8_t **addr_value = &value;
+    uint8_t *metadata = NULL;
+    uint8_t **metadata_value = &metadata;
+    int n_elements = 0;
+    int metadata_elements = 0;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        AGM_LOGE("ipc_agm_session_read_with_metadata has no arguments");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                       "ipc_agm_session_read_with_metadata has no arguments");
+        return;
+    }
+
+    if (strcmp(dbus_message_get_signature(msg), "u(tuuayuay(iuu))")) {
+        AGM_LOGE("Invalid signature for ipc_agm_session_read_with_metadata.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+               "Invalid signature for ipc_agm_session_read_with_metadata.");
+        return;
+    }
+
+    dbus_message_iter_get_basic(&arg_i, &captured_size);
+    dbus_message_iter_next(&arg_i);
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.timestamp);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.flags);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.size);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    if (n_elements < 0 || (uint32_t)n_elements > buff.size) {
+        AGM_LOGE("Invalid buffer size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid buffer size.");
+        return;
+    }
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &buff.metadata_size);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, metadata_value,
+                                      &metadata_elements);
+    if (metadata_elements < 0 ||
+        (uint32_t)metadata_elements > buff.metadata_size) {
+        AGM_LOGE("Invalid metadata size.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "Invalid metadata size.");
+        return;
+    }
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.alloc_handle);
+    dbus_message_iter_next(&alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.alloc_size);
+    dbus_message_iter_next(&alloc_i);
+    dbus_message_iter_get_basic(&alloc_i, &buff.alloc_info.offset);
+
+    if (buff.size > 0) {
+        buff.addr = (uint8_t *)calloc(1, buff.size);
+        if (buff.addr == NULL) {
+            AGM_LOGE("buff addr is NULL");
+            agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                                "buff addr is NULL");
+            return;
+        }
+    }
+
+    if (buff.metadata_size > 0) {
+        buff.metadata = (uint8_t *)calloc(1, buff.metadata_size);
+        if (buff.metadata == NULL) {
+            AGM_LOGE("metadata is NULL");
+            agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                                "metadata is NULL");
+            free(buff.addr);
+            return;
+        }
+        if (metadata != NULL && metadata_elements > 0)
+            memcpy(buff.metadata, metadata, metadata_elements);
+    }
+
+    if (agm_session_read_with_metadata(ses_data->handle,
+                                       &buff,
+                                       &captured_size)) {
+        AGM_LOGE("agm_session_read_with_metadata failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_session_read_with_metadata failed.");
+        free(buff.addr);
+        free(buff.metadata);
+        return;
+    }
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_message_iter_init_append(reply, &r_arg);
+    value = buff.addr;
+    metadata = buff.metadata;
+    dbus_message_iter_open_container(&r_arg, DBUS_TYPE_STRUCT, NULL,
+                                     &struct_i);
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT64,
+                                   &buff.timestamp);
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                                   &buff.flags);
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                                   &buff.size);
+    dbus_message_iter_open_container(&struct_i, DBUS_TYPE_ARRAY, "y",
+                                     &array_i);
+    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE,
+                                         &value, buff.size);
+    dbus_message_iter_close_container(&struct_i, &array_i);
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                                   &buff.metadata_size);
+    dbus_message_iter_open_container(&struct_i, DBUS_TYPE_ARRAY, "y",
+                                     &array_i);
+    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE,
+                                         &metadata, buff.metadata_size);
+    dbus_message_iter_close_container(&struct_i, &array_i);
+    dbus_message_iter_open_container(&struct_i, DBUS_TYPE_STRUCT, NULL,
+                                     &alloc_i);
+    dbus_message_iter_append_basic(&alloc_i, DBUS_TYPE_INT32,
+                                   &buff.alloc_info.alloc_handle);
+    dbus_message_iter_append_basic(&alloc_i, DBUS_TYPE_UINT32,
+                                   &buff.alloc_info.alloc_size);
+    dbus_message_iter_append_basic(&alloc_i, DBUS_TYPE_UINT32,
+                                   &buff.alloc_info.offset);
+    dbus_message_iter_close_container(&struct_i, &alloc_i);
+    dbus_message_iter_close_container(&r_arg, &struct_i);
+    dbus_message_iter_append_basic(&r_arg, DBUS_TYPE_UINT32, &captured_size);
+    dbus_connection_send(conn, reply, NULL);
+    free(buff.addr);
+    free(buff.metadata);
+    dbus_message_unref(reply);
+}
+
 static void ipc_agm_session_resume(DBusConnection *conn,
                                    DBusMessage *msg,
                                    void *userdata) {
@@ -2425,6 +2939,56 @@ static void ipc_agm_session_pause(DBusConnection *conn,
     }
 
     AGM_LOGV("%s : ", __func__);
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_session_flush(DBusConnection *conn,
+                                  DBusMessage *msg,
+                                  void *userdata) {
+    DBusMessage *reply = NULL;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (agm_session_flush(ses_data->handle)) {
+        AGM_LOGE("agm_session_flush failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_session_flush failed.");
+        return;
+    }
+
+    reply = dbus_message_new_method_return(msg);
+    dbus_connection_send(conn, reply, NULL);
+    dbus_message_unref(reply);
+}
+
+static void ipc_agm_session_suspend(DBusConnection *conn,
+                                    DBusMessage *msg,
+                                    void *userdata) {
+    DBusMessage *reply = NULL;
+    agm_session_data *ses_data = (agm_session_data *)userdata;
+
+    if (userdata == NULL) {
+        AGM_LOGE("Invalid userdata");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "userdata is NULL");
+        return;
+    }
+
+    if (agm_session_suspend(ses_data->handle)) {
+        AGM_LOGE("agm_session_suspend failed.");
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "agm_session_suspend failed.");
+        return;
+    }
 
     reply = dbus_message_new_method_return(msg);
     dbus_connection_send(conn, reply, NULL);
