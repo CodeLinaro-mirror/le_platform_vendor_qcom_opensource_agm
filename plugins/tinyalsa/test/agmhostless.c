@@ -55,7 +55,7 @@ void play_loopback(unsigned int card, unsigned int p_device, unsigned int c_devi
                   struct device_config *p_config, unsigned int period_size,
                   unsigned int period_count, unsigned int play_cap_time, char* capture_intf,
                   char* play_intf, unsigned int pdkv, unsigned int cdkv, unsigned int stream_kv,
-                  unsigned int do_loopback);
+                  unsigned int do_loopback, unsigned int vmid_kv, unsigned int offload_proc_kv);
 
 void usage()
 {
@@ -63,6 +63,9 @@ void usage()
            " [-n n_periods]  [-c channels] [-r rate] [-b bits] [-T playback/capture time ]\n"
            " [-i capture intf] [-o playback intf]\n"
            " [-cdkv capture_device_kv] [-pdkv playback_device_kv] [-skv stream_kv]\n"
+           " [-vmid_kv] Uses the KV value from acdb. Assign 0 or leave blank for no vmid_kv,\n"
+           " PVM - 0xDD000001, LA_GVM1 - 0xDD000002, LA_GVM2 - 0xDD000003, LA_GVM3 - 0xDD000004.\n"
+           " [-offload offload_proc_kv]\n"
            " Used to enable 'hostless' mode for audio devices with a DSP back-end.\n"
            " Alternatively, specify '-l' for loopback mode: this program will read\n"
            " from the capture device and write to the playback device.\n");
@@ -88,6 +91,8 @@ int main(int argc, char **argv)
     unsigned int c_device_kv = 0;
     unsigned int p_device_kv = 0;
     unsigned int stream_kv = 0;
+    unsigned int vmid_kv = 0;
+    unsigned int offload_proc_kv = 0;
     unsigned int ret = 0;
 
     if (argc < 2) {
@@ -156,6 +161,14 @@ int main(int argc, char **argv)
             argv++;
             if (*argv)
                 p_device_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-vmid_kv") == 0) {
+            argv++;
+            if (*argv)
+                vmid_kv = convert_char_to_hex(*argv);
+        } else if (strcmp(*argv, "-offload") == 0) {
+            argv++;
+            if (*argv)
+                offload_proc_kv = convert_char_to_hex(*argv);
         } else if (strcmp(*argv, "-help") == 0) {
             usage();
         }
@@ -207,10 +220,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    printf("Stream kv= 0x%X, VMID kv = 0x%X, Offload proc kv = 0x%X\n", stream_kv, vmid_kv, offload_proc_kv);
+
     signal(SIGINT, sigint_handler);
     play_loopback(card, p_device, c_device, num_channels, sample_rate, format, &capture_config, &play_config, period_size,
                   period_count, play_cap_time, c_intf_name, p_intf_name, p_device_kv,
-                  c_device_kv, stream_kv, do_loopback);
+                  c_device_kv, stream_kv, do_loopback, vmid_kv, offload_proc_kv);
 
     return 0;
 }
@@ -220,7 +235,7 @@ void play_loopback(unsigned int card, unsigned int p_device, unsigned int c_devi
                   struct device_config *p_config, unsigned int period_size,
                   unsigned int period_count, unsigned int play_cap_time, char* capture_intf,
                   char* play_intf, unsigned int pdkv, unsigned int cdkv, unsigned int stream_kv,
-                  unsigned int do_loopback)
+                  unsigned int do_loopback, unsigned int vmid_kv, unsigned int offload_proc_kv)
 {
     struct pcm_config config;
     struct pcm *p_pcm, *c_pcm;
@@ -281,7 +296,7 @@ void play_loopback(unsigned int card, unsigned int p_device, unsigned int c_devi
     }
 
     if (set_agm_stream_metadata(mixer, p_device, stream_kv, LOOPBACK, STREAM_PCM,
-                                0)) {
+                                0, vmid_kv, offload_proc_kv)) {
         printf("Failed to set playback stream metadata\n");
         goto err_close_mixer;
     }
