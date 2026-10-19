@@ -501,12 +501,16 @@ static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
         if (agm_dbus_remove_interface(mdata->conn,
                                       ses_data->dbus_obj_path,
                                       session_interface_info.name) != 0) {
-            AGM_LOGE("%s:Unable to remove interface", __func__);
+            AGM_LOGE("%s:Unable to remove interface %s for session %u",
+                     __func__, ses_data->dbus_obj_path, ses_data->session_id);
             agm_dbus_send_error(mdata->conn,
                                 msg,
                                 DBUS_ERROR_FAILED,
                                 "agm_session_close failed.");
         }
+
+        free(ses_data->dbus_obj_path);
+        ses_data->dbus_obj_path = NULL;
 
         g_hash_table_remove(mdata->sessions,
                             GUINT_TO_POINTER(ses_data->session_id));
@@ -525,7 +529,8 @@ void agm_free_session(gpointer c_data) {
         if (agm_dbus_remove_interface(mdata->conn,
                                       data->dbus_obj_path,
                                       session_interface_info.name))
-            AGM_LOGE("Unable to remove interface.");
+            AGM_LOGE("Unable to remove interface %s for session %u.",
+                     data->dbus_obj_path, data->session_id);
         free(data->dbus_obj_path);
         data->dbus_obj_path = NULL;
     }
@@ -3123,11 +3128,15 @@ static void ipc_agm_session_close(DBusConnection *conn,
     if (agm_dbus_remove_interface(mdata->conn,
                                   ses_data->dbus_obj_path,
                                   session_interface_info.name)) {
-        AGM_LOGE("%s :Failed to remove interface", __func__);
+        AGM_LOGE("%s:Unable to remove interface %s for session %u",
+                 __func__, ses_data->dbus_obj_path, ses_data->session_id);
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
                        "agm_session_close failed. Failed to remove interface.");
         return;
     }
+
+    free(ses_data->dbus_obj_path);
+    ses_data->dbus_obj_path = NULL;
 
     g_hash_table_remove(mdata->sessions,
                         GUINT_TO_POINTER(ses_data->session_id));

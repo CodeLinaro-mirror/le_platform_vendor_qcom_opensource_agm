@@ -737,6 +737,7 @@ no_config:
     }
     graph_obj->state = OPENED;
     *gph_obj = graph_obj;
+    AGM_LOGI("GRAPH_OPEN success handle %p\n", graph_obj->graph_handle);
     AGM_LOGD("graph_handle %p\n", graph_obj->graph_handle);
 
     goto done;
@@ -796,7 +797,8 @@ int graph_close(struct graph_obj *graph_obj)
     if (ret !=0) {
         ret = ar_err_get_lnx_err_code(ret);
         AGM_LOGE("gsl close failed error %d\n", ret);
-    }
+    } else
+        AGM_LOGI("GRAPH_CLOSE success handle %p\n", graph_obj->graph_handle);
 #ifndef AGM_MEMLOG_UNSUPPORTED
     agm_memlog_graph_enqueue(GRAPH_CLOSE, ret, graph_obj->graph_handle);
 #endif
@@ -912,6 +914,7 @@ force_configure:
         goto done;
     }
     graph_obj->state = PREPARED;
+    AGM_LOGI("GRAPH_PREPARE success handle %p\n", graph_obj->graph_handle);
 
 done:
     pthread_mutex_unlock(&graph_obj->lock);
@@ -938,6 +941,7 @@ int graph_start(struct graph_obj *graph_obj)
         goto done;
     }
     graph_obj->state = STARTED;
+    AGM_LOGI("GRAPH_START success handle %p\n", graph_obj->graph_handle);
 
 done:
 #ifndef AGM_MEMLOG_UNSUPPORTED
@@ -984,6 +988,8 @@ int graph_stop(struct graph_obj *graph_obj,
             /* Continue to close graph even stop fails */
             if (ret !=0)
                 AGM_LOGE("graph stop with prop failed %d\n", ret);
+            else
+                AGM_LOGI("GRAPH_STOP success handle %p\n", graph_obj->graph_handle);
         }
 
         ret = gsl_ioctl(graph_obj->graph_handle, GSL_CMD_CLOSE_WITH_PROPS,
@@ -1002,7 +1008,8 @@ int graph_stop(struct graph_obj *graph_obj,
         if (ret !=0) {
             ret = ar_err_get_lnx_err_code(ret);
             AGM_LOGE("graph stop failed %d\n", ret);
-        }
+        } else
+            AGM_LOGI("GRAPH_STOP success handle %p\n", graph_obj->graph_handle);
     }
 
 done:
