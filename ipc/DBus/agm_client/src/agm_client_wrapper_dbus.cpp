@@ -110,7 +110,18 @@ typedef struct {
     guint sub_id_callback_event;
 } agm_callback_data;
 
+typedef struct {
+    agm_ssr_cb  cb;
+    void       *client_data;
+    guint       sub_id;
+} agm_ssr_callback_data;
+
 static agm_client_module_data *mdata = NULL;
+
+static GList     *ssr_callbacks   = NULL;
+static GMutex     ssr_mutex;
+static GThread   *ssr_thread_loop = NULL;
+static GMainLoop *ssr_loop        = NULL;
 
 static GDBusConnection *get_dbus_connection() {
     GError *error = NULL;
@@ -211,6 +222,12 @@ static void on_emit_signal_callback(GDBusConnection *conn,
     event_params_l = (struct agm_event_cb_params*) calloc(1,
                      (sizeof(struct agm_event_cb_params) +
                      event_params.event_payload_size));
+
+    if (event_params_l == NULL) {
+      AGM_LOGE("%s: Failed to allocate memory for event_params_l\n", __func__);
+      return;
+    }
+
     array_v = g_variant_iter_next_value(&arg_i);
     value = g_variant_get_fixed_array(array_v, &n_elements, element_size);
     memcpy(&event_params_l->event_payload[0], value, n_elements);
@@ -250,6 +267,7 @@ static void on_emit_ses_signal_callback(GDBusConnection *conn,
                         g_hash_table_lookup(mdata->ses_hash_table,
                                        GINT_TO_POINTER(session_id))) == NULL) {
         AGM_LOGE("%s: Invalid session id received\n", __func__);
+        return;
     }
 
     AGM_LOGD("Waking up session threads read/write = %d thread sts:%u, sid:%d\n",
@@ -419,6 +437,14 @@ exit:
     return NULL;
 }
 
+static void *ssr_signal_threadloop(void *cookie)
+{
+    GMainLoop *loop = (GMainLoop *)cookie;
+    g_main_loop_run(loop);
+    g_main_loop_unref(loop);
+    return NULL;
+}
+
 
 static int agm_session_deregister_cb(uint32_t session_id,
                                      enum event_type evt_type,
@@ -501,6 +527,14 @@ static int agm_session_deregister_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = NULL;
@@ -617,6 +651,14 @@ int agm_session_register_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = cb;
@@ -2178,6 +2220,136 @@ int agm_shmem_buf_free(uint32_t spf_mem_handle){
     return -EINVAL;
 }
 
+static void on_emit_ssr_signal_callback(GDBusConnection *conn,
+                                        const gchar *sender_name,
+                                        const gchar *object_path,
+                                        const gchar *interface_name,
+                                        const gchar *signal_name,
+                                        GVariant *parameters,
+                                        gpointer data)
+{
+    agm_ssr_callback_data *cb_data = (agm_ssr_callback_data *)data;
+    GVariantIter arg_i;
+    uint32_t evt_type = 0;
+
+    (void)conn; (void)sender_name; (void)object_path;
+    (void)interface_name; (void)signal_name;
+
+    g_variant_iter_init(&arg_i, parameters);
+    g_variant_iter_next(&arg_i, "u", &evt_type);
+
+    if (cb_data && cb_data->cb)
+        cb_data->cb((enum agm_ssr_event_type)evt_type, cb_data->client_data);
+}
+
+int agm_register_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    GError *error = NULL;
+    agm_ssr_callback_data *ssr_cb_data = NULL;
+    int rc = 0;
+
+    if (!cb)
+        return -EINVAL;
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    g_mutex_lock(&ssr_mutex);
+
+    /* Reject duplicate (cb, client_data) registrations to prevent orphaned
+     * D-Bus subscriptions and multiple invocations per SSR event. */
+    for (GList *node = ssr_callbacks; node != NULL; node = node->next) {
+        agm_ssr_callback_data *existing = (agm_ssr_callback_data *)node->data;
+        if (existing && existing->cb == cb &&
+            existing->client_data == client_data) {
+            g_mutex_unlock(&ssr_mutex);
+            return -EALREADY;
+        }
+    }
+
+    ssr_cb_data = (agm_ssr_callback_data *)malloc(sizeof(agm_ssr_callback_data));
+    if (!ssr_cb_data) {
+        g_mutex_unlock(&ssr_mutex);
+        return -ENOMEM;
+    }
+
+    ssr_cb_data->cb          = cb;
+    ssr_cb_data->client_data = client_data;
+
+    if (ssr_callbacks == NULL) {
+        ssr_loop = g_main_loop_new(NULL, FALSE);
+        ssr_thread_loop = g_thread_try_new("agm_ssr_loop",
+                                           ssr_signal_threadloop,
+                                           ssr_loop, &error);
+        if (!ssr_thread_loop) {
+            AGM_LOGE("%s: could not create SSR thread: %s\n", __func__,
+                     error->message);
+            g_error_free(error);
+            g_main_loop_unref(ssr_loop);
+            ssr_loop = NULL;
+            g_mutex_unlock(&ssr_mutex);
+            free(ssr_cb_data);
+            return -EINVAL;
+        }
+    }
+
+    ssr_cb_data->sub_id = g_dbus_connection_signal_subscribe(
+                                mdata->conn,
+                                NULL,
+                                AGM_MODULE_IFACE,
+                                "AgmSsrEventCb",
+                                AGM_OBJECT_PATH,
+                                NULL,
+                                G_DBUS_SIGNAL_FLAGS_NONE,
+                                on_emit_ssr_signal_callback,
+                                ssr_cb_data,
+                                NULL);
+
+    ssr_callbacks = g_list_append(ssr_callbacks, ssr_cb_data);
+
+    g_mutex_unlock(&ssr_mutex);
+    return 0;
+}
+
+int agm_deregister_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    GList *node;
+    agm_ssr_callback_data *cb_data;
+    GThread *thread_to_join = NULL;
+
+    if (!cb)
+        return -EINVAL;
+
+    g_mutex_lock(&ssr_mutex);
+
+    for (node = ssr_callbacks; node != NULL; node = node->next) {
+        cb_data = (agm_ssr_callback_data *)node->data;
+        if (cb_data && cb_data->cb == cb &&
+            cb_data->client_data == client_data) {
+            g_dbus_connection_signal_unsubscribe(mdata->conn, cb_data->sub_id);
+            ssr_callbacks = g_list_remove(ssr_callbacks, cb_data);
+            free(cb_data);
+            break;
+        }
+    }
+
+    if (ssr_callbacks == NULL && ssr_loop != NULL) {
+        g_main_loop_quit(ssr_loop);
+        ssr_loop = NULL;
+        thread_to_join = ssr_thread_loop;
+        ssr_thread_loop = NULL;
+    }
+
+    g_mutex_unlock(&ssr_mutex);
+
+    if (thread_to_join)
+        g_thread_join(thread_to_join);
+
+    return 0;
+}
+
 int agm_init() {
     GError *error = NULL;
     int rc = 0;
@@ -2198,4 +2370,5 @@ exit:
 }
 
 int agm_deinit() {
+    return 0;
 }

@@ -26,8 +26,7 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -102,6 +101,7 @@ struct session_obj {
     uint32_t tx_metadata_sz;
     pthread_mutex_t lock;
     pthread_mutex_t cb_pool_lock;
+    struct agm_buf_info extern_buf_info; /* EXTERN_PUSH_PULL: set via agm_session_set_buf_info() */
 };
 
 struct session_pool {
@@ -111,6 +111,7 @@ struct session_pool {
 
 int session_obj_init();
 int session_obj_deinit();
+void session_obj_ssr_cleanup(void);
 int session_obj_valid_check(uint64_t hndl);
 int session_obj_get(int session_id, struct session_obj **sess_obj);
 struct session_obj *session_obj_retrieve_from_pool(uint32_t session_id);
