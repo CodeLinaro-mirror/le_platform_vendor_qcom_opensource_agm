@@ -95,6 +95,8 @@ typedef struct {
     pid_t pid;
     sp<client_death_notifier> Client_death_notifier;
     struct listnode agm_client_hndl_list;
+    /* UNREG_CLIENT received; entry is freed when the client dies */
+    bool unregistered;
 } client_info;
 
 client_info *get_client_handle_from_list(pid_t pid);

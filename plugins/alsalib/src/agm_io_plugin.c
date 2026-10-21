@@ -544,9 +544,6 @@ static int agm_io_close(snd_pcm_ioplug_t * io)
     free(pcm->session_config);
     free(io->private_data);
 
-    AGM_LOGD("%s: calling agm_deinit to unreg client\n", __func__);
-    agm_deinit();
-
     AGM_LOGD("%s: exit\n", __func__);
     return 0;
 }

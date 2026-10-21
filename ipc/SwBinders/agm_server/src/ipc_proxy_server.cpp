@@ -108,8 +108,6 @@ pthread_mutex_t clbk_data_list_lock;
 bool clbk_data_list_init = false;
 extern pthread_mutex_t g_client_list_lock;
 
-android::sp<IAGMClient> clt_binder;
-
 using namespace android;
 
 enum {
@@ -172,28 +170,40 @@ class BpAgmService : public ::android::BpInterface<IAgmService>
 
         ~BpAgmService()
         {
-		//UNREG Binder transaction handled in virtual method ipc_agm_unreg_client()
+            AGM_LOGV("~BpAgmservice() destructor called\n");
         }
 
-	virtual int ipc_agm_unreg_client()
-	{
-		android::Parcel data, reply;
+    protected:
+        /*
+         * UNREG_CLIENT has to be sent here and not from the destructor:
+         * BpRefBase::onLastStrongRef() drops the strong reference on the
+         * server handle and the destructor only runs after that, by which
+         * point the binder driver rejects any transaction on the handle.
+         */
+        void onLastStrongRef(const void* id) override
+        {
+            if (clt_binder != NULL && remote() != NULL &&
+                                         remote()->isBinderAlive()) {
+                android::Parcel data, reply;
+                status_t status;
 
-		AGM_LOGD("%s: enter\n", __func__);
-		if (clt_binder == nullptr) {
-			AGM_LOGD("%s: clt_binder null, skipping UNREG_CLIENT\n", __func__);
-			return 0;
-		}
+                data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
+                data.writeStrongBinder(IInterface::asBinder(clt_binder));
+                status = remote()->transact(UNREG_CLIENT, data, &reply);
+                if (status != NO_ERROR)
+                    AGM_LOGE("UNREG_CLIENT failed, status %d\n", status);
+                else
+                    AGM_LOGD("calling UNREG_CLIENT from BpAgmService\n");
+            }
+            clt_binder.clear();
+            BpRefBase::onLastStrongRef(id);
+        }
 
-		data.writeInterfaceToken(IAgmService::getInterfaceDescriptor());
-		data.writeStrongBinder(IInterface::asBinder(clt_binder));
-		remote()->transact(UNREG_CLIENT, data, &reply);
+    private:
+        /* Token the server links to death to track this client */
+        android::sp<IAGMClient> clt_binder;
 
-		clt_binder = NULL;
-		AGM_LOGD("%s: UNREG_CLIENT sent, clt_binder cleared\n", __func__);
-		return 0;
-	}
-
+    public:
         virtual int ipc_agm_audio_intf_set_media_config(uint32_t audio_intf,
                                       struct agm_media_config *media_config)
         {

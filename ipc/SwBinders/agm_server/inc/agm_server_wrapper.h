@@ -117,8 +117,7 @@ class AgmService : public BnAgmService
         virtual int ipc_agm_session_get_buf_info(uint32_t session_id,
                            struct agm_buf_info *buf_info, uint32_t flag);
         virtual int ipc_agm_session_get_available_frame_count(uint32_t session_id, uint32_t *payload);
-        virtual int ipc_agm_unreg_client();
-	~AgmService()
+        ~AgmService()
         {
             AGM_LOGV("AGMService destructor");
             agm_deinit();

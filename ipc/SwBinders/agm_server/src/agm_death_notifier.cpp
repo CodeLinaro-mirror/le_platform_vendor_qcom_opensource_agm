@@ -79,7 +79,7 @@ client_info *get_client_handle_from_list(pid_t pid)
 
     list_for_each(node, &g_client_list) {
         handle = node_to_item(node, client_info, list);
-        if (handle->pid == pid) {
+        if (handle->pid == pid && !handle->unregistered) {
             AGM_LOGV("%s: Found handle %p\n", __func__, handle);
             return handle;
         }
@@ -200,38 +200,35 @@ void agm_remove_session_obj_handle(uint64_t handle)
 
 void agm_unregister_client(sp<IBinder> binder)
 {
-    pid_t pid = -1;
-    android::sp<IAGMClient> client_binder =
-                                   android::interface_cast<IAGMClient>(binder);
     client_info *handle = NULL;
     struct listnode *tempnode = NULL;
     struct listnode *node = NULL;
 
     AGM_LOGV("%s: enter\n", __func__);
+    if (binder == NULL || g_client_list_init == false) {
+        AGM_LOGE("%s: invalid client binder or no client registered\n",
+                                                              __func__);
+        return;
+    }
+
     pthread_mutex_lock(&g_client_list_lock);
     list_for_each_safe(node, tempnode, &g_client_list) {
         handle = node_to_item(node, client_info, list);
-        IPCThreadState* ipc = IPCThreadState::self();
-        if (ipc != nullptr) {
-            pid = ipc->getCallingPid();
-        } else {
-            ALOGE("IPCThreadState::self() returned null");
-            continue;
-        }
-        if (handle->pid == pid) {
-            if (handle->Client_death_notifier != NULL) {
-                if (IInterface::asBinder(client_binder) != NULL) {
-                    IInterface::asBinder(client_binder)->unlinkToDeath(handle->Client_death_notifier);
-                }
-                handle->Client_death_notifier.clear();
-                AGM_LOGV("%s: unlink to death %d\n", __func__, handle->pid);
-            }
-            list_remove(node);
-            free(handle);
+        /* Match the token sent at REG_CLIENT, not just the calling pid */
+        if (IInterface::asBinder(handle->binder) == binder) {
+            /*
+             * Only mark the client; binderDied() releases its sessions,
+             * callbacks and binder. Releasing binder references here makes
+             * the driver send BR_RELEASE to a client that is usually
+             * exiting, and a binder thread spawned for it then crashes.
+             */
+            handle->unregistered = true;
+            AGM_LOGD("%s: client %d unregistered\n", __func__, handle->pid);
+            break;
         }
     }
-    AGM_LOGV("%s: exit\n", __func__);
     pthread_mutex_unlock(&g_client_list_lock);
+    AGM_LOGV("%s: exit\n", __func__);
 }
 
 void client_death_notifier::binderDied(const wp<IBinder>& who)

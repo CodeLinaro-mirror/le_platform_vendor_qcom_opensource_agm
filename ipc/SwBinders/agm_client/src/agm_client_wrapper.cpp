@@ -63,24 +63,39 @@ using namespace android;
 
 sp<server_death_notifier> Server_death_notifier = NULL;
 sp<IAgmService> agm_client = NULL;
-bool agm_server_died = false;
+
+static pthread_mutex_t agm_client_lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 android::sp<IAgmService> get_agm_server()
 {
+    android::sp<IAgmService> client;
+
+    /*
+     * Serialize first-time setup: a second BpAgmService created by a
+     * racing thread would send its own REG_CLIENT and then UNREG_CLIENT
+     * as soon as it is dropped.
+     */
+    pthread_mutex_lock(&agm_client_lock);
     if (agm_client == NULL) {
         AGM_LOGD("Agm client initialized\n");
         android:: sp<android::IBinder> binder =
                    android::defaultServiceManager()->getService(android::String16("AgmService"));
+        if (binder == NULL) {
+            AGM_LOGE("%s: AgmService not available\n", __func__);
+            pthread_mutex_unlock(&agm_client_lock);
+            return NULL;
+        }
         agm_client = android::interface_cast<IAgmService>(binder);
         AGM_LOGV("got service handle\n");
-        if (Server_death_notifier == NULL) {
+        if (Server_death_notifier == NULL)
             Server_death_notifier = new server_death_notifier();
-            binder->linkToDeath(Server_death_notifier);
-            AGM_LOGV("%s : server linked to death \n", __func__);
-        }
+        binder->linkToDeath(Server_death_notifier);
+        AGM_LOGV("%s : server linked to death \n", __func__);
     }
-    return agm_client;
+    client = agm_client;
+    pthread_mutex_unlock(&agm_client_lock);
+    return client;
 }
 
 server_death_notifier::server_death_notifier()
@@ -90,11 +105,15 @@ server_death_notifier::server_death_notifier()
     proc->startThreadPool();
 }
 
-void server_death_notifier::binderDied(const wp<IBinder>& who __unused)
+void server_death_notifier::binderDied(const wp<IBinder>& who)
 {
-    agm_server_died = true;
     AGM_LOGE("Agm server died !! and I am notified\n");
-    //add further functionality
+    /* Drop the dead proxy so the next call reconnects to the restarted server */
+    pthread_mutex_lock(&agm_client_lock);
+    if (agm_client != NULL &&
+            IInterface::asBinder(agm_client).get() == who.unsafe_get())
+        agm_client.clear();
+    pthread_mutex_unlock(&agm_client_lock);
 }
 
 int agm_register_service_crash_callback(agm_service_crash_cb cb  __attribute__((__unused__)),
@@ -106,12 +125,10 @@ int agm_register_service_crash_callback(agm_service_crash_cb cb  __attribute__((
 int agm_aif_set_media_config(uint32_t audio_intf,
                              struct agm_media_config *media_config)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_audio_intf_set_media_config(audio_intf,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_audio_intf_set_media_config(audio_intf,
                                                             media_config);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -122,12 +139,10 @@ int agm_session_set_config(uint64_t handle,
                 struct agm_media_config *media_config,
                 struct agm_buffer_config *buffer_config)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_set_config(handle, session_config,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_set_config(handle, session_config,
                                                 media_config, buffer_config);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -139,26 +154,15 @@ int agm_init(){
 }
 
 int agm_deinit(){
-	/*agm_deinit in IPC happens in context of the server*/
-	AGM_LOGD("%s: enter, agm_server_died=%d\n", __func__, agm_server_died);
-	if (!agm_server_died) {
-		android::sp<IAgmService> agm_client = get_agm_server();
-		agm_client->ipc_agm_unreg_client();
-	} else {
-		AGM_LOGD("%s: server already dead, skipping unreg\n", __func__);
-	}
-	AGM_LOGD("%s: exit\n", __func__);
+     /*agm_deinit in IPC happens in context of the server*/
       return 0;
 }
 
 int agm_aif_set_metadata(uint32_t audio_intf, uint32_t size, uint8_t *metadata){
-    if(!agm_server_died)
-    {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_audio_intf_set_metadata(audio_intf, size,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_audio_intf_set_metadata(audio_intf, size,
                                                                   metadata);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -166,13 +170,10 @@ int agm_aif_set_metadata(uint32_t audio_intf, uint32_t size, uint8_t *metadata){
 
 int agm_session_set_metadata(uint32_t session_id, uint32_t size,
                                              uint8_t *metadata){
-    if(!agm_server_died)
-    {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_set_metadata(session_id, size,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_set_metadata(session_id, size,
                                                                metadata);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -180,13 +181,10 @@ int agm_session_set_metadata(uint32_t session_id, uint32_t size,
 
 int agm_session_aif_set_metadata(uint32_t session_id, uint32_t audio_intf,
                                         uint32_t size, uint8_t *metadata){
-    if(!agm_server_died)
-    {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_audio_inf_set_metadata(session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_audio_inf_set_metadata(session_id,
                                                  audio_intf, size, metadata);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -194,11 +192,9 @@ int agm_session_aif_set_metadata(uint32_t session_id, uint32_t audio_intf,
 
 int agm_session_close(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_close(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_close(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -206,11 +202,9 @@ int agm_session_close(uint64_t handle)
 
 int agm_session_prepare(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_prepare(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_prepare(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -218,11 +212,9 @@ int agm_session_prepare(uint64_t handle)
 
 int agm_session_start(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_start(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_start(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -230,11 +222,9 @@ int agm_session_start(uint64_t handle)
 
 int agm_session_stop(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_stop(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_stop(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -242,11 +232,9 @@ int agm_session_stop(uint64_t handle)
 
 int agm_session_pause(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_pause(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_pause(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -254,11 +242,9 @@ int agm_session_pause(uint64_t handle)
 
 int agm_session_resume(uint64_t handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_resume(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_resume(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -268,11 +254,9 @@ int agm_session_open(uint32_t session_id,
                      enum agm_session_mode sess_mode,
                      uint64_t *handle)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_open(session_id, sess_mode, handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_open(session_id, sess_mode, handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -281,12 +265,10 @@ int agm_session_open(uint32_t session_id,
 int  agm_session_aif_connect(uint32_t session_id, uint32_t audio_intf,
                                                            bool state)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_audio_inf_connect(session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_audio_inf_connect(session_id,
                                                      audio_intf, state);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -294,14 +276,12 @@ int  agm_session_aif_connect(uint32_t session_id, uint32_t audio_intf,
 
 int agm_session_read(uint64_t handle, void *buf, size_t *byte_count)
 {
+    if (!handle)
+        return -EINVAL;
 
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (!handle)
-           return -EINVAL;
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_read(handle, buf, byte_count);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_read(handle, buf, byte_count);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -309,14 +289,12 @@ int agm_session_read(uint64_t handle, void *buf, size_t *byte_count)
 
 int agm_session_write(uint64_t handle, void *buf, size_t *byte_count)
 {
+    if (!handle)
+        return -EINVAL;
 
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (!handle)
-           return -EINVAL;
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_write(handle, buf, byte_count);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_write(handle, buf, byte_count);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -326,12 +304,10 @@ int agm_session_write(uint64_t handle, void *buf, size_t *byte_count)
 int agm_session_set_loopback(uint32_t capture_session_id,
                 uint32_t playback_session_id, bool state)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_set_loopback(capture_session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_set_loopback(capture_session_id,
                                                playback_session_id, state);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -339,11 +315,9 @@ int agm_session_set_loopback(uint32_t capture_session_id,
 
 size_t agm_get_hw_processed_buff_cnt(uint64_t handle, enum direction dir)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_get_hw_processed_buff_cnt(handle, dir);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_get_hw_processed_buff_cnt(handle, dir);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -351,11 +325,9 @@ size_t agm_get_hw_processed_buff_cnt(uint64_t handle, enum direction dir)
 
 int agm_get_aif_info_list(struct aif_info *aif_list, size_t *num_aif_info)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_get_aif_info_list(aif_list, num_aif_info);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_get_aif_info_list(aif_list, num_aif_info);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -364,12 +336,10 @@ int agm_get_aif_info_list(struct aif_info *aif_list, size_t *num_aif_info)
 int agm_session_aif_get_tag_module_info(uint32_t session_id, uint32_t aif_id,
                                                  void *payload, size_t *size)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_aif_get_tag_module_info(session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_aif_get_tag_module_info(session_id,
                                                        aif_id, payload, size);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -377,12 +347,10 @@ int agm_session_aif_get_tag_module_info(uint32_t session_id, uint32_t aif_id,
 
 int agm_aif_set_params(uint32_t aif_id,void *payload, size_t size)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_aif_set_params(aif_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_aif_set_params(aif_id,
                                                           payload, size);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -391,12 +359,10 @@ int agm_aif_set_params(uint32_t aif_id,void *payload, size_t size)
 int agm_session_aif_set_params(uint32_t session_id, uint32_t aif_id,
                                          void *payload, size_t size)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_aif_set_params(session_id, aif_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_aif_set_params(session_id, aif_id,
                                                               payload, size);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -404,12 +370,10 @@ int agm_session_aif_set_params(uint32_t session_id, uint32_t aif_id,
 
 int agm_session_set_params(uint32_t session_id, void *payload, size_t size)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_set_params(session_id, payload,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_set_params(session_id, payload,
                                                                     size);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -418,12 +382,10 @@ int agm_session_set_params(uint32_t session_id, void *payload, size_t size)
 int agm_set_params_with_tag(uint32_t session_id, uint32_t aif_id,
                                struct agm_tag_config *tag_config)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_set_params_with_tag(session_id, aif_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_set_params_with_tag(session_id, aif_id,
                                                               tag_config);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -432,12 +394,10 @@ int agm_set_params_with_tag(uint32_t session_id, uint32_t aif_id,
 int agm_set_params_with_tag_to_acdb(uint32_t session_id, uint32_t aif_id,
                                              void *payload, size_t size)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_set_params_with_tag_to_acdb(session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_set_params_with_tag_to_acdb(session_id,
                                     aif_id, payload, size);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
 
@@ -447,12 +407,10 @@ int agm_set_params_with_tag_to_acdb(uint32_t session_id, uint32_t aif_id,
 int agm_session_register_for_events(uint32_t session_id,
                   struct agm_event_reg_cfg *evt_reg_cfg)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_register_for_events(session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_register_for_events(session_id,
                                                              evt_reg_cfg);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -460,12 +418,10 @@ int agm_session_register_for_events(uint32_t session_id,
 int agm_session_register_cb(uint32_t session_id, agm_event_cb cb,
                         enum event_type event, void *client_data)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_register_cb(session_id, cb, event,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_register_cb(session_id, cb, event,
                                                                 client_data);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -474,12 +430,10 @@ int agm_session_register_cb(uint32_t session_id, agm_event_cb cb,
 int agm_session_set_ec_ref(uint32_t capture_session_id, uint32_t aif_id,
                                                              bool state)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_set_ec_ref(capture_session_id,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_set_ec_ref(capture_session_id,
                                                           aif_id, state);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -488,12 +442,10 @@ int agm_session_set_ec_ref(uint32_t capture_session_id, uint32_t aif_id,
 int agm_session_aif_set_cal(uint32_t session_id, uint32_t audio_intf,
                                    struct agm_cal_config *cal_config)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_aif_set_cal(session_id, audio_intf,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_aif_set_cal(session_id, audio_intf,
                                                                   cal_config);
-        }
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -501,11 +453,9 @@ int agm_session_aif_set_cal(uint32_t session_id, uint32_t audio_intf,
 
 int agm_session_eos(uint64_t handle)
 {
-    if(!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_eos(handle);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_eos(handle);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -513,11 +463,9 @@ int agm_session_eos(uint64_t handle)
 
 int agm_get_session_time(uint64_t handle, uint64_t *timestamp)
 {
-    if(!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_get_session_time(handle, timestamp);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_get_session_time(handle, timestamp);
     }
     AGM_LOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -525,12 +473,9 @@ int agm_get_session_time(uint64_t handle, uint64_t *timestamp)
 
 int agm_session_get_params(uint32_t session_id, void *payload, size_t size)
 {
-    if(!agm_server_died)
-    {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_get_params(session_id, payload, size);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_get_params(session_id, payload, size);
     }
     ALOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -538,11 +483,9 @@ int agm_session_get_params(uint32_t session_id, void *payload, size_t size)
 
 int agm_get_buffer_timestamp(uint32_t session_id, uint64_t *timestamp)
 {
-    if(!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_get_buffer_timestamp(session_id, timestamp);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_get_buffer_timestamp(session_id, timestamp);
     }
     ALOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -552,12 +495,10 @@ int agm_set_gapless_session_metadata(uint64_t handle,
                          enum agm_gapless_silence_type type,
                          uint32_t silence)
 {
-    if(!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_set_gapless_session_metadata(handle, type,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_set_gapless_session_metadata(handle, type,
                                                                 silence);
-        }
     }
     ALOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -566,12 +507,10 @@ int agm_set_gapless_session_metadata(uint64_t handle,
 int agm_session_get_buf_info(uint32_t session_id, struct agm_buf_info *buf_info,
                              uint32_t flag)
 {
-    if(!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_get_buf_info(session_id, buf_info,
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_get_buf_info(session_id, buf_info,
                                                         flag);
-        }
     }
     ALOGE("%s: agm service is not running\n", __func__);
     return -EAGAIN;
@@ -579,11 +518,9 @@ int agm_session_get_buf_info(uint32_t session_id, struct agm_buf_info *buf_info,
 
 int agm_session_get_available_frame_count(uint32_t session_id, uint32_t *payload)
 {
-    if (!agm_server_died) {
-        android::sp<IAgmService> agm_client = get_agm_server();
-        if (agm_client != NULL) {
-            return agm_client->ipc_agm_session_get_available_frame_count(session_id, payload);
-        }
+    android::sp<IAgmService> agm_client = get_agm_server();
+    if (agm_client != NULL) {
+        return agm_client->ipc_agm_session_get_available_frame_count(session_id, payload);
     }
 
     AGM_LOGE("%s: agm service is not running\n", __func__);
