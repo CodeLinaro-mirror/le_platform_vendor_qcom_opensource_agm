@@ -61,6 +61,18 @@ AC_ARG_WITH([audio-log-util-bridge],
     [with_audio_log_util_bridge=no])
 AM_CONDITIONAL([AGM_AUDIO_LOG_UTIL_BRIDGE],
                [test "x${with_audio_log_util_bridge}" = "xyes"])
+AC_ARG_ENABLE([bootkpi-logging],
+    AS_HELP_STRING([--enable-bootkpi-logging],
+        [enable Boot KPI logging in agmplay (default is no)]),
+    [enable_bootkpi_logging=$enableval],
+    [enable_bootkpi_logging=no])
+AM_CONDITIONAL([ENABLE_BOOTKPI_LOGGING],
+    [test "x${enable_bootkpi_logging}" = "xyes"])
+
+if test "x${enable_bootkpi_logging}" = "xyes"; then
+    AC_CHECK_HEADERS([bootkpi/logging.h], [],
+        [AC_MSG_ERROR([--enable-bootkpi-logging requires bootkpi/logging.h])])
+fi
 
 AC_ARG_WITH([are_on_apps],
     AS_HELP_STRING([--with-are-on-apps],[Enable ARE (SPF) on APPS support (default is no)]),
