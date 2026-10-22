@@ -60,7 +60,7 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "ipc_proxy"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <utils/Log.h>
 

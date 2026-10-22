@@ -29,3 +29,5 @@
 
 int ipc_agm_init();
 void ipc_agm_deinit();
+int ipc_agm_ssr_register(void);
+void ipc_agm_ssr_deregister(void);

@@ -5,7 +5,7 @@
 #ifndef NDEBUG
 #define NDEBUG 0
 #endif
-#define LOG_TAG "AgmIpc::Client"
+#define LOG_TAG "AGM: ipc_client"
 
 #include <agm/agm_api.h>
 #include <aidl/vendor/qti/hardware/agm/IAGM.h>

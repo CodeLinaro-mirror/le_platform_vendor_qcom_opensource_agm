@@ -6,6 +6,8 @@
 #include <agm/agm_memlogger.h>
 #include <agm/utils.h>
 
+#define LOG_TAG "AGM: memlogger"
+
 #ifndef AGM_MEMLOG_UNSUPPORTED
 void agm_memlog_init()
 {

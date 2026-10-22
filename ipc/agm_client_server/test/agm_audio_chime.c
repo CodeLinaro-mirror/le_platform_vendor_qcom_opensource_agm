@@ -55,6 +55,26 @@ struct wav_header {
     uint32_t data_sz;
 };
 
+struct riff_wave_header {
+    uint32_t riff_id;
+    uint32_t riff_sz;
+    uint32_t wave_id;
+};
+
+struct chunk_header {
+    uint32_t id;
+    uint32_t sz;
+};
+
+struct chunk_fmt {
+    uint16_t audio_format;
+    uint16_t num_channels;
+    uint32_t sample_rate;
+    uint32_t byte_rate;
+    uint16_t block_align;
+    uint16_t bits_per_sample;
+};
+
 static bool g_running = true;
 static uint8_t *g_audio_buf = NULL;
 static uint32_t g_session_id = 100;
@@ -64,6 +84,7 @@ static uint32_t g_sample_rate = 48000;
 static uint32_t g_bits_per_sample = 16;
 static uint32_t g_channels = 2;
 static uint32_t g_data_size = 0;
+static long g_wav_data_offset = 0;
 static uint32_t g_frame_period = 1024;
 static uint32_t g_frame_count = 4;
 static uint32_t g_record_time_sec = 10;  // Default recording time in seconds
@@ -71,7 +92,7 @@ static uint32_t g_record_time_sec = 10;  // Default recording time in seconds
 
 // New KV parameters
 static uint32_t g_device_kv = 0xA2000016;     // Default device KV (playback)
-static uint32_t g_devicepp_kv = 0xAC000002;   // Default devicepp KV (playback)
+static uint32_t g_devicepp_kv = 0;             // 0 = not provided; set via -dppkv
 static uint32_t g_stream_kv = 0xA1000001;     // Default stream KV (playback)
 static uint32_t g_vmid = 0xDD000001;          // PVM usecase
 static uint32_t g_instance_kv = 0;
@@ -113,24 +134,93 @@ static void signal_handler(int signum) {
     g_running = false;
 }
 
+static int skip_wav_chunk_payload(FILE *fp, uint32_t chunk_size) {
+    long skip = (long)chunk_size;
+
+    if (chunk_size & 1)
+        skip++;
+
+    if (fseek(fp, skip, SEEK_CUR) != 0) {
+        AGM_LOGE("Failed to skip chunk payload: %s", strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 static int parse_wav_header(FILE *fp, uint32_t *rate, uint32_t *bits, uint32_t *chs, uint32_t *size) {
-    struct wav_header header;
+    struct riff_wave_header riff;
+    struct chunk_header chunk;
+    struct chunk_fmt fmt = {0};
+    bool have_fmt = false;
+    bool have_data = false;
 
-    if (fread(&header, sizeof(struct wav_header), 1, fp) != 1) {
-        AGM_LOGE("Failed to read WAV header");
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        AGM_LOGE("Failed to rewind WAV file: %s", strerror(errno));
         return -1;
     }
 
-    if (header.riff_id != ID_RIFF || header.riff_fmt != ID_WAVE ||
-        header.fmt_id != ID_FMT || header.audio_format != FORMAT_PCM) {
-        AGM_LOGE("Invalid WAV format");
+    if (fread(&riff, sizeof(riff), 1, fp) != 1) {
+        AGM_LOGE("Failed to read RIFF/WAVE header");
         return -1;
     }
 
-    *rate = header.sample_rate;
-    *bits = header.bits_per_sample;
-    *chs = header.num_channels;
-    *size = header.data_sz;
+    if (riff.riff_id != ID_RIFF || riff.wave_id != ID_WAVE) {
+        AGM_LOGE("Invalid WAV file: missing RIFF/WAVE");
+        return -1;
+    }
+
+    while (fread(&chunk, sizeof(chunk), 1, fp) == 1) {
+        switch (chunk.id) {
+        case ID_FMT:
+            if (chunk.sz < sizeof(fmt)) {
+                AGM_LOGE("Invalid fmt chunk size: %u", chunk.sz);
+                return -1;
+            }
+
+            if (fread(&fmt, sizeof(fmt), 1, fp) != 1) {
+                AGM_LOGE("Failed to read fmt chunk");
+                return -1;
+            }
+
+            have_fmt = true;
+
+            if (chunk.sz > sizeof(fmt) &&
+                skip_wav_chunk_payload(fp, chunk.sz - sizeof(fmt)) != 0)
+                return -1;
+            break;
+
+        case ID_DATA:
+            g_wav_data_offset = ftell(fp);
+            if (g_wav_data_offset < 0) {
+                AGM_LOGE("Failed to capture data chunk offset");
+                return -1;
+            }
+            *size = chunk.sz;
+            have_data = true;
+            goto done;
+
+        default:
+            if (skip_wav_chunk_payload(fp, chunk.sz) != 0)
+                return -1;
+            break;
+        }
+    }
+
+done:
+    if (!have_fmt || !have_data) {
+        AGM_LOGE("Invalid WAV file: missing %s%s chunk",
+                 !have_fmt ? "fmt" : "",
+                 !have_fmt && !have_data ? " and data" : (!have_data ? "data" : ""));
+        return -1;
+    }
+
+    *rate = fmt.sample_rate;
+    *bits = fmt.bits_per_sample;
+    *chs = fmt.num_channels;
+
+    AGM_LOGD("Parsed WAV fmt: format=0x%04X rate=%u bits=%u channels=%u data_offset=%ld data_size=%u",
+             fmt.audio_format, *rate, *bits, *chs, g_wav_data_offset, *size);
 
     return 0;
 }
@@ -162,9 +252,12 @@ static int create_stream_metadata(uint8_t **stream_data, uint32_t *stream_size, 
                                   g_sample_rate == 16000 ? SAMPLINGRATE_16K :
                                   g_sample_rate == 32000 ? SAMPLINGRATE_32K :
                                   g_sample_rate == 44100 ? SAMPLINGRATE_44K :
+                                  g_sample_rate == 96000 ? SAMPLINGRATE_96K :
                                                             SAMPLINGRATE_48K);
 
-    uint32_t bitwidth_val = (g_bits_per_sample == 24 ? BITWIDTH_24 : BITWIDTH_16);
+    uint32_t bitwidth_val = (g_bits_per_sample == 32 ? BITWIDTH_32 :
+                             g_bits_per_sample == 24 ? BITWIDTH_24 :
+                                                       BITWIDTH_16);
 
 
     uint32_t stream_meta[64];
@@ -214,8 +307,11 @@ static int create_device_metadata(uint8_t **device_data, uint32_t *device_size, 
                                   g_sample_rate == 16000 ? SAMPLINGRATE_16K :
                                   g_sample_rate == 32000 ? SAMPLINGRATE_32K :
                                   g_sample_rate == 44100 ? SAMPLINGRATE_44K :
+                                  g_sample_rate == 96000 ? SAMPLINGRATE_96K :
                                                             SAMPLINGRATE_48K);
-    uint32_t bitwidth_val = (g_bits_per_sample == 24 ? BITWIDTH_24 : BITWIDTH_16);
+    uint32_t bitwidth_val = (g_bits_per_sample == 32 ? BITWIDTH_32 :
+                             g_bits_per_sample == 24 ? BITWIDTH_24 :
+                                                       BITWIDTH_16);
 
     uint32_t dev_meta[] = {
         1,
@@ -295,8 +391,20 @@ static int playback_audio(FILE *file, audio_format_t format, uint8_t dir)
 
     // Read until EOF
     size_t num_read = 0;
+    uint32_t bytes_remaining = (format == AUDIO_FORMAT_WAV) ? g_data_size : 0;
     for (;;) {
-        num_read = fread(g_audio_buf, 1, buffer_size, file);
+        size_t bytes_to_read = buffer_size;
+
+        if (format == AUDIO_FORMAT_WAV) {
+            if (bytes_remaining == 0) {
+                AGM_LOGI("Reached end of WAV data chunk");
+                break;
+            }
+            if (bytes_to_read > bytes_remaining)
+                bytes_to_read = bytes_remaining;
+        }
+
+        num_read = fread(g_audio_buf, 1, bytes_to_read, file);
         if (num_read == 0) {
             if (feof(file)) {
                 AGM_LOGI("Reached EOF");
@@ -312,6 +420,15 @@ static int playback_audio(FILE *file, audio_format_t format, uint8_t dir)
 
         if (bytes_to_write != num_read) {
             AGM_LOGD("Warning: Only wrote %zu of %zu bytes", bytes_to_write, num_read);
+        }
+
+        if (format == AUDIO_FORMAT_WAV) {
+            if (num_read > bytes_remaining) {
+                AGM_LOGE("Read beyond declared WAV data chunk");
+                ret = -EIO;
+                break;
+            }
+            bytes_remaining -= num_read;
         }
     }
     size_t cnt = agm_get_hw_processed_buff_cnt(g_handle, dir);
@@ -527,7 +644,6 @@ int main(int argc, char **argv) {
             mode = strtoul(argv[i + 1], NULL, 0);
             if (mode == MODE_CAPTURE) {
                 g_device_kv = 0xA3000016;     // Default capture device KV
-                g_devicepp_kv = 0xAD000002;   // Default capture devicepp KV
                 g_stream_kv = 0xB1000001;     // Default capture stream KV
                 g_interface = "TDM-LPAIF_RXTX-TX-PRIMARY";  // Default capture interface
                 AGM_LOGE("MODE_CAPTURE");
@@ -615,8 +731,8 @@ int main(int argc, char **argv) {
             fclose(file);
             return -1;
         }
-        AGM_LOGI("WAV header parsed: %u Hz, %u bits, %u channels, %u bytes",
-                 g_sample_rate, g_bits_per_sample, g_channels, g_data_size);
+        AGM_LOGI("WAV header parsed: %u Hz, %u bits, %u channels, %u bytes, data offset %ld",
+                 g_sample_rate, g_bits_per_sample, g_channels, g_data_size, g_wav_data_offset);
     }
     else if (mode == MODE_PLAYBACK) {
         fseek(file, 0, SEEK_END);
@@ -647,6 +763,7 @@ int main(int argc, char **argv) {
     //get aif_info
     uint32_t aif_id = 0;
     uint8_t dir = 0;
+    int aif_connected = 0;
     ret = device_get_aif_info(g_interface, &aif_id, &dir);
 
     if (ret != 0) {
@@ -676,21 +793,28 @@ int main(int argc, char **argv) {
     ret = agm_aif_set_metadata(aif_id, device_size, device_data);
     free(device_data);
 
-    //device-pp metadata
-    uint8_t *devicepp_data = NULL; uint32_t devicepp_size = 0;
-    ret = create_devicepp_metadata(&devicepp_data, &devicepp_size, dir);
-    if (ret) { AGM_LOGE("create_devicepp_metadata failed: %d", ret);  goto cleanup; }
+    //device-pp metadata (only if -dppkv was explicitly provided)
+    if (g_devicepp_kv != 0) {
+        uint8_t *devicepp_data = NULL; uint32_t devicepp_size = 0;
+        ret = create_devicepp_metadata(&devicepp_data, &devicepp_size, dir);
+        if (ret) { AGM_LOGE("create_devicepp_metadata failed: %d", ret);  goto cleanup; }
 
-    AGM_LOGD("Calling agm_session_aif_set_metadata (device-PP): sid=%u aif_id=%u size=%u",
-             g_session_id, aif_id, devicepp_size);
-    ret = agm_session_aif_set_metadata(g_session_id, aif_id, devicepp_size, devicepp_data);
-    free(devicepp_data);
-    if (ret) { AGM_LOGE("agm_session_aif_set_metadata failed: %d", ret); goto cleanup; }
+        AGM_LOGD("Calling agm_session_aif_set_metadata (device-PP): sid=%u aif_id=%u size=%u",
+                 g_session_id, aif_id, devicepp_size);
+        ret = agm_session_aif_set_metadata(g_session_id, aif_id, devicepp_size, devicepp_data);
+        free(devicepp_data);
+        if (ret) { AGM_LOGE("agm_session_aif_set_metadata failed: %d", ret); goto cleanup; }
+    } else {
+        AGM_LOGI("Skipping device-PP metadata (no -dppkv provided)");
+    }
 
     struct agm_media_config media_cfg = {0};
     media_cfg.rate        = g_sample_rate;
     media_cfg.channels    = g_channels;
-    media_cfg.format      = 2;             //AGM_FORMAT_PCM_S16_LE
+    media_cfg.format      = (g_bits_per_sample == 32) ? AGM_FORMAT_PCM_S32_LE :
+                            (g_bits_per_sample == 24) ? AGM_FORMAT_PCM_S24_LE :
+                            (g_bits_per_sample ==  8) ? AGM_FORMAT_PCM_S8     :
+                                                        AGM_FORMAT_PCM_S16_LE;
     media_cfg.data_format = 1;
 
     ret = agm_aif_set_media_config(aif_id, &media_cfg);
@@ -700,6 +824,7 @@ int main(int argc, char **argv) {
     AGM_LOGD("Calling agm_session_aif_connect: sid=%u aif_id=%u connect=true", g_session_id, aif_id);
     ret = agm_session_aif_connect(g_session_id, aif_id, true);
     if (ret) { AGM_LOGE("agm_session_aif_connect failed: %d", ret); goto cleanup; }
+    aif_connected = 1;
 
 
     //session_open
@@ -749,6 +874,7 @@ int main(int argc, char **argv) {
     // Cleanup
 cleanup:
     AGM_LOGI("enter cleanup");
+    if (aif_connected) agm_session_aif_connect(g_session_id, aif_id, false);
     if (g_handle) agm_session_close(g_handle);
     if (g_audio_buf) free(g_audio_buf);
     if (file) fclose(file);

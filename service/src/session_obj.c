@@ -28,12 +28,13 @@
  *
  * Changes from Qualcomm Technologies, Inc. are provided under the following license:
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 #define LOG_TAG "AGM: session"
 
 #include <malloc.h>
 #include <string.h>
+#include <stdbool.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
 #ifdef __QNX__
@@ -316,6 +317,55 @@ static void session_pool_free()
     }
     pthread_mutex_unlock(&sess_pool->lock);
     free(sess_pool);
+}
+
+bool agm_has_active_sessions(void)
+{
+    struct session_obj *sess_obj;
+    struct listnode *node;
+    int count = 0;
+
+    if (!sess_pool)
+        return false;
+
+    pthread_mutex_lock(&sess_pool->lock);
+    list_for_each(node, &sess_pool->session_list) {
+        sess_obj = node_to_item(node, struct session_obj, node);
+        pthread_mutex_lock(&sess_obj->lock);
+        if (sess_obj->state == SESSION_STARTED)
+            count++;
+        pthread_mutex_unlock(&sess_obj->lock);
+    }
+    pthread_mutex_unlock(&sess_pool->lock);
+    if (count)
+        AGM_LOGD("%s: active session count=%d", __func__, count);
+    return count > 0;
+}
+
+void session_obj_ssr_cleanup(void)
+{
+    struct session_obj *sess_obj;
+    struct listnode *node, *next;
+    int ret = 0;
+
+    if (!sess_pool)
+        return;
+
+    pthread_mutex_lock(&sess_pool->lock);
+    list_for_each_safe(node, next, &sess_pool->session_list) {
+        sess_obj = node_to_item(node, struct session_obj, node);
+        pthread_mutex_lock(&sess_obj->lock);
+        if (sess_obj->state != SESSION_CLOSED) {
+            AGM_LOGI("%s: SSR DN: closing session %u", __func__, sess_obj->sess_id);
+            ret = session_close(sess_obj);
+            if (ret)
+                AGM_LOGE("%s: session_close(%u) ret=%d (ignored, DSP down)",
+                         __func__, sess_obj->sess_id, ret);
+        }
+        pthread_mutex_unlock(&sess_obj->lock);
+        /* sess_obj stays in pool — removed only at shutdown by session_pool_free() */
+    }
+    pthread_mutex_unlock(&sess_pool->lock);
 }
 
 static struct session_obj* session_obj_create(int session_id)

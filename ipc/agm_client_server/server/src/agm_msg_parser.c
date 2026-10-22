@@ -15,7 +15,7 @@
 
 #include <agm/agm_api.h>
 
-#define LOG_TAG "AGM_SERVER_PROXY"
+#define LOG_TAG "AGM: ipc_server"
 
 #include <agm/utils.h>
 #ifndef AGM_MEMLOG_UNSUPPORTED
@@ -244,6 +244,8 @@ static int agm_server_get_buffer_timestamp(const uint8_t* in, uint32_t in_len,ui
 
 static int agm_server_session_eos(const uint8_t* in, uint32_t in_len, uint8_t* out __unused, uint32_t* out_len);
 static int agm_server_get_hw_processed_buff_cnt(const uint8_t* in, uint32_t in_len, uint8_t* out, uint32_t* out_len);
+static int agm_server_session_aif_set_params( const uint8_t* in, uint32_t in_len, uint8_t* out, uint32_t* out_len);
+static int agm_server_session_set_params(const uint8_t* in, uint32_t in_len, uint8_t* out, uint32_t* out_len);
 
 /* Dispatch table for the requested APIs */
 static const agm_dispatch_entry_t g_dispatch_tbl[] = {
@@ -267,18 +269,20 @@ static const agm_dispatch_entry_t g_dispatch_tbl[] = {
     { AGM_OP_SET_SESSION_CONFIG,          "SESSION_SET_SESSION_CONFIG",      agm_server_session_set_config },
     { AGM_OP_SESSION_REGISTER_CB,         "SESSION_REGISTER_CB",             agm_server_session_register_cb },
     { AGM_OP_SESSION_EOS,                 "SESSION_EOS",                     agm_server_session_eos },
-    { AGM_OP_GET_HW_PROCESSED_BUFF_CNT,   "SESSION_GET_HW_PROCESSED_BUFF_CNT",   agm_server_get_hw_processed_buff_cnt },
-    { AGM_OP_AGM_GET_AIF_INFO_LIST,       "AGM_GET_AIF_INFO_LIST",            agm_server_get_aif_info_list1 },
-    { AGM_OP_AGM_GET_GROUP_AIF_INFO_LIST,  "AGM_GET_GROUP_AIF_INFO_LIST",     agm_server_get_group_aif_info_list },
-    { AGM_OP_GROUP_SET_MEDIA_CONFIG,       "GROUP_SET_MEDIA_CONFIG",          agm_server_aif_group_set_media_config },
-    { AGM_OP_SET_PARAMS_ACDB_TUNNEL,       "SET_PARAMS_ACDB_TUNNEL",          agm_server_set_params_to_acdb_tunnel },
-    { AGM_OP_GET_PARAMS_ACDB_TUNNEL,       "GET_PARAMS_ACDB_TUNNEL",          agm_server_get_params_to_acdb_tunnel },
-    { AGM_OP_SESSION_AIF_SET_CAL,       "SESSION_AIF_SET_CAL",          agm_server_session_aif_set_cal },
-    { AGM_OP_AIF_SET_PARAMS,       "AIF_SET_PARAMS",          agm_server_aif_set_params },
-    { AGM_OP_SESSION_GET_BUF_INFO,       "SESSION_GET_BUF_INFO",          agm_server_session_get_buf_info },
-    { AGM_OP_SESSION_SET_LOOPBACK,       "SESSION_SET_LOOPBACK",          agm_server_session_set_loopback },
-    { AGM_OP_SESSION_SET_EC_REF,       "SESSION_SET_EC_REF",          agm_server_session_set_ec_ref },
-    { AGM_OP_GET_BUFFER_TIMESTAMP,       "GET_BUFFER_TIMESTAMP",          agm_server_get_buffer_timestamp },
+    { AGM_OP_GET_HW_PROCESSED_BUFF_CNT,   "SESSION_GET_HW_PROCESSED_BUFF_CNT",  agm_server_get_hw_processed_buff_cnt },
+    { AGM_OP_AGM_GET_AIF_INFO_LIST,       "AGM_GET_AIF_INFO_LIST",           agm_server_get_aif_info_list1 },
+    { AGM_OP_AGM_GET_GROUP_AIF_INFO_LIST, "AGM_GET_GROUP_AIF_INFO_LIST",     agm_server_get_group_aif_info_list },
+    { AGM_OP_GROUP_SET_MEDIA_CONFIG,      "GROUP_SET_MEDIA_CONFIG",          agm_server_aif_group_set_media_config },
+    { AGM_OP_SET_PARAMS_ACDB_TUNNEL,      "SET_PARAMS_ACDB_TUNNEL",          agm_server_set_params_to_acdb_tunnel },
+    { AGM_OP_GET_PARAMS_ACDB_TUNNEL,      "GET_PARAMS_ACDB_TUNNEL",          agm_server_get_params_to_acdb_tunnel },
+    { AGM_OP_SESSION_AIF_SET_CAL,         "SESSION_AIF_SET_CAL",             agm_server_session_aif_set_cal },
+    { AGM_OP_AIF_SET_PARAMS,              "AIF_SET_PARAMS",                  agm_server_aif_set_params },
+    { AGM_OP_SESSION_GET_BUF_INFO,        "SESSION_GET_BUF_INFO",            agm_server_session_get_buf_info },
+    { AGM_OP_SESSION_SET_LOOPBACK,        "SESSION_SET_LOOPBACK",            agm_server_session_set_loopback },
+    { AGM_OP_SESSION_SET_EC_REF,          "SESSION_SET_EC_REF",              agm_server_session_set_ec_ref },
+    { AGM_OP_GET_BUFFER_TIMESTAMP,        "GET_BUFFER_TIMESTAMP",            agm_server_get_buffer_timestamp },
+    { AGM_OP_SET_SESSION_AIF_PARAM,     "SET_SESSION_AIF_PARAM",            agm_server_session_aif_set_params },
+    { AGM_OP_SET_SESSION_PARAM,         "SET_SESSION_PARAM",                    agm_server_session_set_params },
 };
 
 static const size_t g_dispatch_tbl_count = sizeof(g_dispatch_tbl) / sizeof(g_dispatch_tbl[0]);
@@ -394,7 +398,7 @@ static int agm_server_get_group_aif_info_list(const uint8_t* in, uint32_t in_len
     *out_len = sizeof(uint32_t) + (uint32_t)(tmp_count * sizeof(struct aif_info));
 
     for (size_t i = 0; i < tmp_count; i++) {
-    AGM_LOGE("%s:aif_info: [%zu] name='%s', dir=%d\n", __func__,
+    AGM_LOGD("%s:aif_info: [%zu] name='%s', dir=%d\n", __func__,
              i, tmp[i].aif_name, tmp[i].dir);
     }
     free(tmp);
@@ -404,13 +408,13 @@ static int agm_server_get_group_aif_info_list(const uint8_t* in, uint32_t in_len
 static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
                                         uint8_t* out, uint32_t* out_len)
 {
-    AGM_LOGE("agm_server_get_aif_info_list1 enter");
+    AGM_LOGD("agm_server_get_aif_info_list1 enter");
     if (in_len < 4) return -EINVAL;
     int ret =0;
     size_t aif_count=0;
     memcpy(&aif_count, in, 4);
 
-    AGM_LOGE("agm_server_get_aif_info_list1 enter %d",aif_count);
+    AGM_LOGD("agm_server_get_aif_info_list1 enter %d",aif_count);
 
     if (aif_count == 0){
         ret = agm_get_aif_info_list(NULL, &aif_count);
@@ -419,7 +423,7 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
 
         memcpy(out,&aif_count,4);
         *out_len = 4;
-        AGM_LOGE("agm_server_get_aif_info_list1 after %d",aif_count);
+        AGM_LOGD("agm_server_get_aif_info_list1 after %d",aif_count);
         return ret;
     }
 
@@ -427,8 +431,8 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
     if (!aif_list) return -ENOMEM;
 
     ret = agm_get_aif_info_list(aif_list, &aif_count);
-    AGM_LOGE("agm_server_get_aif_info_list1 2nd enter %d",aif_count);
-    AGM_LOGE("%s: Got %zu backends from dev:ret %d \n", __func__, aif_count,ret);
+    AGM_LOGD("agm_server_get_aif_info_list1 2nd enter %d",aif_count);
+    AGM_LOGD("%s: Got %zu backends from dev:ret %d \n", __func__, aif_count,ret);
 
     if (ret)
         goto done;
@@ -437,7 +441,7 @@ static int agm_server_get_aif_info_list1(const uint8_t* in, uint32_t in_len,
     memcpy(out+4, aif_list, aif_count * (sizeof(struct aif_info)));
     *out_len = 4 + (aif_count * (sizeof(struct aif_info)));
     for (int i = 0; i < aif_count; i++) {
-        AGM_LOGE("%s: [%d] name='%s', dir=%d\n", __func__,
+        AGM_LOGD("%s: [%d] name='%s', dir=%d\n", __func__,
                  i, aif_list[i].aif_name, aif_list[i].dir);
     }
     done:
@@ -992,7 +996,7 @@ static int agm_server_session_prepare(const uint8_t* in, uint32_t in_len,
     }
 
     *out_len = 0;
-    AGM_LOGE("agm_session_prepare success with ret: %d", ret);
+    AGM_LOGI("agm_session_prepare success with ret: %d", ret);
     return ret;
 
 }
@@ -1215,7 +1219,7 @@ static int agm_server_session_register_cb(const uint8_t* in, uint32_t in_len,
     memcpy(mq_name,      in + sizeof(uint32_t)*2, 32);
     mq_name[31] = '\0';
 
-    AGM_LOGE("SESSION_REGISTER_CB: sid=%u evt_type=%u mq=%s", session_id, evt_type, mq_name);
+    AGM_LOGI("SESSION_REGISTER_CB: sid=%u evt_type=%u mq=%s", session_id, evt_type, mq_name);
 
     uint32_t slot = AGM_PROXY_MAX_SESSIONS;
     for (uint32_t i = 0; i < AGM_PROXY_MAX_SESSIONS; i++) {
@@ -1247,7 +1251,7 @@ static int agm_server_session_register_cb(const uint8_t* in, uint32_t in_len,
         g_server_cb_data[slot].mq_des = (mqd_t)-1;
         return ret;
     } else
-        AGM_LOGE("agm_session_register_cb(core) success: %d", ret);
+    AGM_LOGI("agm_session_register_cb(core) success: %d", ret);
 
     *out_len = 0;
     return 0;
@@ -1298,4 +1302,37 @@ static int agm_server_get_hw_processed_buff_cnt(const uint8_t* in, uint32_t in_l
 
     AGM_LOGI("HW processed buffer count: %zu", buff_cnt);
     return 0;
+}
+
+static int agm_server_session_set_params(
+    const uint8_t* in, uint32_t in_len,
+    uint8_t* out, uint32_t* out_len)
+{
+    if (in_len < 8) return -EINVAL;
+    uint32_t session_id, size32;
+    memcpy(&session_id, in, 4);
+    memcpy(&size32, in+4, 4);
+    if (size32 == 0 || in_len < 8 + size32) return -EINVAL;
+
+    int ret = agm_session_set_params(session_id, (void*)(in+8), size32);
+    *out_len = 0;
+    AGM_LOGI("agm_server_session_set_params ret: %d", ret);
+    return ret;
+}
+
+static int agm_server_session_aif_set_params(
+    const uint8_t* in, uint32_t in_len,
+    uint8_t* out, uint32_t* out_len)
+{
+    if (in_len < 12) return -EINVAL;
+    uint32_t session_id, aif_id, size32;
+    memcpy(&session_id, in, 4);
+    memcpy(&aif_id, in+4, 4);
+    memcpy(&size32, in+8, 4);
+    if (size32 == 0 || in_len < 12 + size32) return -EINVAL;
+
+    int ret = agm_session_aif_set_params(session_id, aif_id, (void*)(in+12), size32);
+    *out_len = 0;
+    AGM_LOGI("agm_session_aif_set_params ret: %d", ret);
+    return ret;
 }

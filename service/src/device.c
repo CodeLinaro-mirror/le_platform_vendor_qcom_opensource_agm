@@ -1139,7 +1139,7 @@ static int parse_virtual_snd_card()
         }
         strlcpy(dev_obj->name, name, strlen(name) + 1);
         ret = populate_device_hw_ep_info(dev_obj);
-        AGM_LOGE("%d:%d:%s:%d\n", dev_obj->card_id, dev_obj->pcm_id, dev_obj->name, dev_obj->has_no_alsa_ops);
+        AGM_LOGV("%d:%d:%s:%d\n", dev_obj->card_id, dev_obj->pcm_id, dev_obj->name, dev_obj->has_no_alsa_ops);
         if (ret) {
             AGM_LOGE("hw_ep_info parsing failed %s\n",
                                dev_obj->name);

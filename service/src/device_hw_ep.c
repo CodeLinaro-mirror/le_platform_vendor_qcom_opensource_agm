@@ -26,38 +26,9 @@
 ** OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
-** Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-**
-** Redistribution and use in source and binary forms, with or without
-** modification, are permitted (subject to the limitations in the
-** disclaimer below) provided that the following conditions are met:
-**
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**
-**   * Redistributions in binary form must reproduce the above
-**     copyright notice, this list of conditions and the following
-**     disclaimer in the documentation and/or other materials provided
-**     with the distribution.
-**
-**   * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-** NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
-** GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
-** HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
-** WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-** MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-** IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-** ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-** DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-** GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-** INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
-** IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-** OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
-** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+** ​​​​​Changes from Qualcomm Technologies, Inc. are provided under the following license:
+** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+** SPDX-License-Identifier: BSD-3-Clause
 **/
 
 #define LOG_TAG "AGM: device"
@@ -80,29 +51,67 @@
 #define DEV_VALUE_SIZE               61
 
 #define CODEC_RX0 1
-#define CODEC_TX0 1
 #define CODEC_RX1 2
-#define CODEC_TX1 2
 #define CODEC_RX2 3
-#define CODEC_TX2 3
 #define CODEC_RX3 4
-#define CODEC_TX3 4
 #define CODEC_RX4 5
-#define CODEC_TX4 5
 #define CODEC_RX5 6
-#define CODEC_TX5 6
 #define CODEC_RX6 7
 #define CODEC_RX7 8
+#define CODEC_RX8 9
+#define CODEC_RX9 10
+#define CODEC_RX10 11
+#define CODEC_RX11 12
+#define CODEC_RX12 13
+#define CODEC_RX13 14
+#define CODEC_RX14 15
+#define CODEC_RX15 16
+#define CODEC_RX16 17
+#define CODEC_RX17 18
+#define CODEC_RX18 19
+#define CODEC_RX19 20
+#define CODEC_RX20 21
+#define CODEC_RX21 22
+#define CODEC_RX22 23
+#define CODEC_TX0 1
+#define CODEC_TX1 2
+#define CODEC_TX2 3
+#define CODEC_TX3 4
+#define CODEC_TX4 5
+#define CODEC_TX5 6
+#define CODEC_TX6 7
+#define CODEC_TX7 8
+#define CODEC_TX8 9
+#define CODEC_TX9 10
+#define CODEC_TX10 11
+#define CODEC_TX11 12
+#define CODEC_TX12 13
+#define CODEC_TX13 14
+#define CODEC_TX14 15
+#define CODEC_TX15 16
+#define CODEC_TX16 17
+#define CODEC_TX17 18
 
 #define SLIMBUS_DEVICE_1 0
 #define SLIMBUS_DEVICE_2 1
+
+enum qaif_intf_idx {
+    QAIF_0 = 0,
+    QAIF_1 = 1,
+    QAIF_2 = 2,
+    QAIF_3 = 3,
+    QAIF_4 = 4,
+    QAIF_5 = 5,
+    QAIF_6 = 6,
+    QAIF_7 = 7,
+    QAIF_8 = 8,
+};
 
 #define MAX_VIRTUAL_CHILDS 8
 
 static int populate_hw_ep_intf_idx(hw_ep_info_t *hw_ep_info, char *intf_idx)
 {
     struct hw_ep_cdc_dma_i2s_tdm_config *cdc_dma_i2s_tdm_config;
-
     cdc_dma_i2s_tdm_config = &hw_ep_info->ep_config.cdc_dma_i2s_tdm_config;
 
     switch(hw_ep_info->intf) {
@@ -125,6 +134,30 @@ static int populate_hw_ep_intf_idx(hw_ep_info_t *hw_ep_info, char *intf_idx)
             cdc_dma_i2s_tdm_config->intf_idx = CODEC_RX7;
         else {
              AGM_LOGE("No matching intf_idx found\n");
+             return -EINVAL;
+        }
+        break;
+    case QAIF:
+        if (!strcmp(intf_idx, "0"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_0;
+        else if (!strcmp(intf_idx, "1"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_1;
+        else if (!strcmp(intf_idx, "2"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_2;
+        else if (!strcmp(intf_idx, "3"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_3;
+        else if (!strcmp(intf_idx, "4"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_4;
+        else if (!strcmp(intf_idx, "5"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_5;
+        else if (!strcmp(intf_idx, "6"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_6;
+        else if (!strcmp(intf_idx, "7"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_7;
+        else if (!strcmp(intf_idx, "8"))
+            cdc_dma_i2s_tdm_config->intf_idx = QAIF_8;
+        else {
+             AGM_LOGE("No matching intf_idx found for QAIF\n");
              return -EINVAL;
         }
         break;
@@ -180,6 +213,8 @@ static int populate_hw_ep_intf(hw_ep_info_t *hw_ep_info, char *intf)
         hw_ep_info->intf = PCM_DUMMY;
     else if (!strcmp(intf, "BTFM_PROXY"))
         hw_ep_info->intf = BTFM_PROXY;
+    else if (!strcmp(intf, "QAIF"))
+        hw_ep_info->intf = QAIF;
     else {
         AGM_LOGE("No matching intf found\n");
         return -EINVAL;
@@ -343,8 +378,56 @@ static int populate_cdc_dma_i2s_tdm_pcm_ep_info(hw_ep_info_t *hw_ep_info, char *
         cdc_dma_i2s_tdm_config->lpaif_type = LPAIF_SDR;
     else if (!strcmp(lpaif_type, "LPAIF_WSA2"))
         cdc_dma_i2s_tdm_config->lpaif_type = LPAIF_WSA2;
+    else if ((!strcmp(lpaif_type, "QAIF-TX")) || (!strcmp(lpaif_type, "QAIF-RX")))
+        cdc_dma_i2s_tdm_config->lpaif_type = LPAIF_QAIF_AUD;
+    else if (!strcmp(lpaif_type, "QAIF_VA"))
+        cdc_dma_i2s_tdm_config->lpaif_type = LPAIF_QAIF_VA;
     else {
         AGM_LOGE("No matching lpaif_type found\n");
+        return -EINVAL;
+    }
+
+    ret = populate_hw_ep_direction(hw_ep_info, dir);
+    if (ret)
+        return ret;
+
+    return populate_hw_ep_intf_idx(hw_ep_info, intf_idx);
+}
+
+static int populate_qaif_dma_ep_info(hw_ep_info_t *hw_ep_info, char *value, int *num_virt_child)
+{
+    char qaif_type[DEV_ARG_SIZE];
+    char intf_idx[DEV_ARG_SIZE], dir[DEV_ARG_SIZE];
+    char arg[DEV_ARG_SIZE] = {0};
+
+    struct hw_ep_qaif_dma_config *qaif_dma_config;
+    int ret = 0;
+
+    qaif_dma_config = &hw_ep_info->ep_config.qaif_dma_config;
+
+    sscanf(value, "%20[^-]-%60s", arg, value);
+    strlcpy(qaif_type, arg, strlen(arg)+1);
+    sscanf(value, "%20[^-]-%60s", arg, value);
+    strlcpy(dir, arg, strlen(arg)+1);
+    sscanf(value, "%20[^-]-%60s", arg, value);
+    strlcpy(intf_idx, arg, strlen(arg)+1);
+
+    if(strstr(value, "VIRT-")) {
+        /* with below statement, arg = VIRT, value = "x-codec" */
+        sscanf(value, "%20[^-]-%60s", arg, value);
+        /* with below statement, arg = x, value = "codec" */
+        sscanf(value, "%20[^-]-%60s", arg, value);
+        *num_virt_child = atoi(arg);
+        if (*num_virt_child > MAX_VIRTUAL_CHILDS)
+            *num_virt_child = MAX_VIRTUAL_CHILDS;
+    }
+
+    if (!strcmp(qaif_type, "QAIF_AUD"))
+        qaif_dma_config->qaif_type = QAIF_AUD;
+    else if (!strcmp(qaif_type, "QAIF_VA"))
+        qaif_dma_config->qaif_type = QAIF_VA;
+    else {
+        AGM_LOGE("No matching qaif_type found\n");
         return -EINVAL;
     }
 
@@ -420,6 +503,9 @@ int populate_device_hw_ep_info(struct device_obj *dev_obj)
         return populate_audioss_dma_ep_info(&dev_obj->hw_ep_info, value);
     case PCM_DUMMY:
         return populate_pcm_dummy_ep_info(&dev_obj->hw_ep_info, value);
+    case QAIF:
+        return populate_qaif_dma_ep_info(&dev_obj->hw_ep_info, value,
+                   &dev_obj->num_virtual_child);
     default:
         AGM_LOGE("%s: Unsupported interface name %s\n", __func__, dev_obj->name);
         return -EINVAL;

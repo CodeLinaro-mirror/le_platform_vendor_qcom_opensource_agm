@@ -62,7 +62,7 @@
 ** IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **/
 
-#define LOG_TAG "agm_client_wrapper"
+#define LOG_TAG "AGM: ipc_client"
 
 #include <string.h>
 #include <stdio.h>
@@ -110,7 +110,34 @@ typedef struct {
     guint sub_id_callback_event;
 } agm_callback_data;
 
+typedef struct {
+    agm_ssr_cb  cb;
+    void       *client_data;
+    guint       sub_id;
+} agm_ssr_callback_data;
+
 static agm_client_module_data *mdata = NULL;
+static agm_service_crash_cb g_service_crash_cb = NULL;
+static uint64_t g_service_crash_cookie = 0;
+static guint g_service_crash_watch_id = 0;
+
+static GMutex g_service_crash_lock;
+
+static void on_agm_service_vanished(GDBusConnection *connection,
+                                    const gchar *name,
+                                    gpointer user_data) {
+    g_mutex_lock(&g_service_crash_lock);
+    agm_service_crash_cb cb = g_service_crash_cb;
+    uint64_t cookie = g_service_crash_cookie;
+    g_mutex_unlock(&g_service_crash_lock);
+    if (cb != NULL)
+        cb(cookie);
+}
+
+static GList     *ssr_callbacks   = NULL;
+static GMutex     ssr_mutex;
+static GThread   *ssr_thread_loop = NULL;
+static GMainLoop *ssr_loop        = NULL;
 
 static GDBusConnection *get_dbus_connection() {
     GError *error = NULL;
@@ -186,6 +213,49 @@ static int initialize_module_data() {
     return rc;
 }
 
+int agm_register_service_crash_callback(agm_service_crash_cb cb,
+                                        uint64_t cookie) {
+    int rc = 0;
+
+    AGM_LOGD("%s\n", __func__);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    g_mutex_lock(&g_service_crash_lock);
+    if (g_service_crash_watch_id != 0) {
+        g_bus_unwatch_name(g_service_crash_watch_id);
+        g_service_crash_watch_id = 0;
+    }
+
+    g_service_crash_cb = cb;
+    g_service_crash_cookie = cookie;
+
+    if (cb == NULL) {
+        g_mutex_unlock(&g_service_crash_lock);
+        return 0;
+    }
+
+    g_service_crash_watch_id = g_bus_watch_name_on_connection(
+            mdata->conn,
+            AGM_DBUS_CONNECTION,
+            G_BUS_NAME_WATCHER_FLAGS_NONE,
+            NULL,
+            on_agm_service_vanished,
+            NULL,
+            NULL);
+    if (g_service_crash_watch_id == 0) {
+        AGM_LOGE("%s: failed to register service watch\n", __func__);
+        g_mutex_unlock(&g_service_crash_lock);
+        return -EINVAL;
+    }
+    g_mutex_unlock(&g_service_crash_lock);
+
+    return 0;
+}
+
 static void on_emit_signal_callback(GDBusConnection *conn,
                                     const gchar *sender_name,
                                     const gchar *object_path,
@@ -211,6 +281,12 @@ static void on_emit_signal_callback(GDBusConnection *conn,
     event_params_l = (struct agm_event_cb_params*) calloc(1,
                      (sizeof(struct agm_event_cb_params) +
                      event_params.event_payload_size));
+
+    if (event_params_l == NULL) {
+      AGM_LOGE("%s: Failed to allocate memory for event_params_l\n", __func__);
+      return;
+    }
+
     array_v = g_variant_iter_next_value(&arg_i);
     value = g_variant_get_fixed_array(array_v, &n_elements, element_size);
     memcpy(&event_params_l->event_payload[0], value, n_elements);
@@ -250,6 +326,7 @@ static void on_emit_ses_signal_callback(GDBusConnection *conn,
                         g_hash_table_lookup(mdata->ses_hash_table,
                                        GINT_TO_POINTER(session_id))) == NULL) {
         AGM_LOGE("%s: Invalid session id received\n", __func__);
+        return;
     }
 
     AGM_LOGD("Waking up session threads read/write = %d thread sts:%u, sid:%d\n",
@@ -419,6 +496,14 @@ exit:
     return NULL;
 }
 
+static void *ssr_signal_threadloop(void *cookie)
+{
+    GMainLoop *loop = (GMainLoop *)cookie;
+    g_main_loop_run(loop);
+    g_main_loop_unref(loop);
+    return NULL;
+}
+
 
 static int agm_session_deregister_cb(uint32_t session_id,
                                      enum event_type evt_type,
@@ -501,6 +586,14 @@ static int agm_session_deregister_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = NULL;
@@ -617,6 +710,14 @@ int agm_session_register_cb(uint32_t session_id,
     }
 
     cb_data = (agm_callback_data *)malloc(sizeof(agm_callback_data));
+
+    if (cb_data == NULL) {
+        AGM_LOGE("%s: Failed to allocate memory for cb_data\n", __func__);
+        free(ses_data);
+        ses_data = NULL;
+        return -EINVAL;
+    }
+
     cb_data->client_data = client_data;
     cb_data->session_id = session_id;
     cb_data->cb = cb;
@@ -1738,6 +1839,77 @@ int agm_session_set_config(uint64_t handle,
     return 0;
 }
 
+int agm_session_set_non_tunnel_mode_config(uint64_t handle,
+                                struct agm_session_config *session_config,
+                                struct agm_media_config *in_media_config,
+                                struct agm_media_config *out_media_config,
+                                struct agm_buffer_config *in_buffer_config,
+                                struct agm_buffer_config *out_buffer_config) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *result = NULL, *arr = NULL, *argument = NULL;
+    GVariant *in_media_v = NULL, *out_media_v = NULL;
+    GVariant *in_buffer_v = NULL, *out_buffer_v = NULL;
+    GError *error = NULL;
+
+    if (ses_data == NULL || ses_data->proxy == NULL ||
+        session_config == NULL || in_media_config == NULL ||
+        out_media_config == NULL || in_buffer_config == NULL ||
+        out_buffer_config == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+
+    AGM_LOGD("%s\n", __func__);
+
+    in_media_v = g_variant_new("(uuuu)",
+                               (guint32)in_media_config->rate,
+                               (guint32)in_media_config->channels,
+                               (guint32)in_media_config->format,
+                               (guint32)in_media_config->data_format);
+    out_media_v = g_variant_new("(uuuu)",
+                                (guint32)out_media_config->rate,
+                                (guint32)out_media_config->channels,
+                                (guint32)out_media_config->format,
+                                (guint32)out_media_config->data_format);
+    in_buffer_v = g_variant_new("(uuu)",
+                                (guint32)in_buffer_config->count,
+                                (guint32)in_buffer_config->size,
+                                (guint32)in_buffer_config->max_metadata_size);
+    out_buffer_v = g_variant_new("(uuu)",
+                                 (guint32)out_buffer_config->count,
+                                 (guint32)out_buffer_config->size,
+                                 (guint32)out_buffer_config->max_metadata_size);
+    arr = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                    (gconstpointer)session_config,
+                                    sizeof(struct agm_session_config),
+                                    sizeof(guchar));
+
+    argument = g_variant_new("(@(uuuu)@(uuuu)@(uuu)@(uuu)@ay)",
+                             in_media_v,
+                             out_media_v,
+                             in_buffer_v,
+                             out_buffer_v,
+                             arr);
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSessionSetNonTunnelModeConfig",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSessionSetNonTunnelModeConfig: %s\n",
+                  __func__, error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
 int agm_session_write(uint64_t handle, void *buf, size_t *byte_count) {
     agm_client_session_data *ses_data = (agm_client_session_data *) handle;
     GVariant *result = NULL, *arr = NULL, *argument = NULL;
@@ -1832,6 +2004,196 @@ int agm_session_read(uint64_t handle, void *buf, size_t *byte_count) {
     return 0;
 }
 
+int agm_session_write_with_metadata(uint64_t handle,
+                                    struct agm_buff *buff,
+                                    size_t *consumed_size) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *result = NULL, *argument = NULL;
+    GVariant *data_arr = NULL, *metadata_arr = NULL, *buff_v = NULL;
+    GError *error = NULL;
+    uint32_t consumed_size_u32 = 0;
+
+    if (ses_data == NULL || ses_data->proxy == NULL ||
+        buff == NULL || consumed_size == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+
+    AGM_LOGD("%s\n", __func__);
+
+    if ((buff->size != 0 && buff->addr == NULL) ||
+        (buff->metadata_size != 0 && buff->metadata == NULL)) {
+        AGM_LOGE("%s: invalid buff parameters\n", __func__);
+        return -EINVAL;
+    }
+
+    data_arr = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                         (gconstpointer)buff->addr,
+                                         buff->size,
+                                         sizeof(guchar));
+    metadata_arr = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                             (gconstpointer)buff->metadata,
+                                             buff->metadata_size,
+                                             sizeof(guchar));
+    buff_v = g_variant_new("(tuu@ayu@ay(iuu))",
+                           (guint64)buff->timestamp,
+                           (guint32)buff->flags,
+                           (guint32)buff->size,
+                           data_arr,
+                           (guint32)buff->metadata_size,
+                           metadata_arr,
+                           (gint32)buff->alloc_info.alloc_handle,
+                           (guint32)buff->alloc_info.alloc_size,
+                           (guint32)buff->alloc_info.offset);
+    argument = g_variant_new("(@(tuuayuay(iuu)))", buff_v);
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSessionWriteWithMetadata",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSessionWriteWithMetadata: %s\n",
+                  __func__, error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_get(result, "(u)", &consumed_size_u32);
+    *consumed_size = consumed_size_u32;
+    g_variant_unref(result);
+    return 0;
+}
+
+int agm_session_read_with_metadata(uint64_t handle,
+                                   struct agm_buff *buff,
+                                   uint32_t *captured_size) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *result = NULL, *argument = NULL, *buff_v = NULL;
+    GVariant *ret_buff_v = NULL, *array_v = NULL, *alloc_v = NULL;
+    GVariant *data_arr = NULL, *metadata_arr = NULL;
+    GError *error = NULL;
+    gconstpointer data = NULL;
+    gconstpointer metadata = NULL;
+    gsize n_elements = 0;
+    gsize metadata_elements = 0;
+    gsize element_size = sizeof(guchar);
+    uint32_t size = 0;
+    uint32_t metadata_size = 0;
+
+    if (ses_data == NULL || ses_data->proxy == NULL ||
+        buff == NULL || captured_size == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+
+    AGM_LOGD("%s\n", __func__);
+
+    data_arr = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                         (gconstpointer)buff->addr,
+                                         0,
+                                         sizeof(guchar));
+    metadata_arr = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+                                             (gconstpointer)buff->metadata,
+                                             0,
+                                             sizeof(guchar));
+    buff_v = g_variant_new("(tuu@ayu@ay(iuu))",
+                           (guint64)buff->timestamp,
+                           (guint32)buff->flags,
+                           (guint32)buff->size,
+                           data_arr,
+                           (guint32)buff->metadata_size,
+                           metadata_arr,
+                           (gint32)buff->alloc_info.alloc_handle,
+                           (guint32)buff->alloc_info.alloc_size,
+                           (guint32)buff->alloc_info.offset);
+    argument = g_variant_new("(@u@(tuuayuay(iuu)))",
+                             g_variant_new_uint32(*captured_size),
+                             buff_v);
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSessionReadWithMetadata",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSessionReadWithMetadata: %s\n",
+                  __func__, error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    ret_buff_v = g_variant_get_child_value(result, 0);
+
+    g_variant_get_child(ret_buff_v, 0, "t", &buff->timestamp);
+    g_variant_get_child(ret_buff_v, 1, "u", &buff->flags);
+    g_variant_get_child(ret_buff_v, 2, "u", &size);
+
+    array_v = g_variant_get_child_value(ret_buff_v, 3);
+    data = g_variant_get_fixed_array(array_v, &n_elements, element_size);
+    if (n_elements > size || n_elements > buff->size) {
+        AGM_LOGE("%s: insufficient data buffer size\n", __func__);
+        g_variant_unref(array_v);
+        g_variant_unref(ret_buff_v);
+        g_variant_unref(result);
+        return -ENOMEM;
+    }
+    if (n_elements > 0) {
+        if (buff->addr == NULL) {
+            AGM_LOGE("%s: data buffer is NULL\n", __func__);
+            g_variant_unref(array_v);
+            g_variant_unref(ret_buff_v);
+            g_variant_unref(result);
+            return -EINVAL;
+        }
+        memcpy(buff->addr, data, n_elements);
+    }
+    buff->size = size;
+    g_variant_unref(array_v);
+
+    g_variant_get_child(ret_buff_v, 4, "u", &metadata_size);
+    array_v = g_variant_get_child_value(ret_buff_v, 5);
+    metadata = g_variant_get_fixed_array(array_v, &metadata_elements,
+                                         element_size);
+    if (metadata_elements > metadata_size ||
+        metadata_elements > buff->metadata_size) {
+        AGM_LOGE("%s: insufficient metadata buffer size\n", __func__);
+        g_variant_unref(array_v);
+        g_variant_unref(ret_buff_v);
+        g_variant_unref(result);
+        return -ENOMEM;
+    }
+    if (metadata_elements > 0) {
+        if (buff->metadata == NULL) {
+            AGM_LOGE("%s: metadata buffer is NULL\n", __func__);
+            g_variant_unref(array_v);
+            g_variant_unref(ret_buff_v);
+            g_variant_unref(result);
+            return -EINVAL;
+        }
+        memcpy(buff->metadata, metadata, metadata_elements);
+    }
+    buff->metadata_size = metadata_size;
+    g_variant_unref(array_v);
+
+    alloc_v = g_variant_get_child_value(ret_buff_v, 6);
+    g_variant_get_child(alloc_v, 0, "i", &buff->alloc_info.alloc_handle);
+    g_variant_get_child(alloc_v, 1, "u", &buff->alloc_info.alloc_size);
+    g_variant_get_child(alloc_v, 2, "u", &buff->alloc_info.offset);
+    g_variant_unref(alloc_v);
+    g_variant_unref(ret_buff_v);
+
+    g_variant_get_child(result, 1, "u", captured_size);
+    g_variant_unref(result);
+    return 0;
+}
+
 int agm_session_resume(uint64_t handle) {
     agm_client_session_data *ses_data = (agm_client_session_data *) handle;
     GVariant *result = NULL;
@@ -1879,6 +2241,66 @@ int agm_session_pause(uint64_t handle) {
 
     if (result == NULL) {
         AGM_LOGE("%s: Error invoking AgmSessionPause: %s\n", __func__,
+                  error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
+int agm_session_flush(uint64_t handle) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *result = NULL;
+    GError *error = NULL;
+
+    if (ses_data == NULL || ses_data->proxy == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+    AGM_LOGD("%s\n", __func__);
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSessionFlush",
+                                    NULL,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSessionFlush: %s\n", __func__,
+                  error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
+int agm_session_suspend(uint64_t handle) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *result = NULL;
+    GError *error = NULL;
+
+    if (ses_data == NULL || ses_data->proxy == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+    AGM_LOGD("%s\n", __func__);
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSessionSuspend",
+                                    NULL,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSessionSuspend: %s\n", __func__,
                   error->message);
         g_error_free(error);
         return -EINVAL;
@@ -2139,6 +2561,86 @@ exit:
     return rc;
 }
 
+int agm_set_gapless_session_metadata(uint64_t handle,
+                                     enum agm_gapless_silence_type type,
+                                     uint32_t silence) {
+    agm_client_session_data *ses_data = (agm_client_session_data *) handle;
+    GVariant *argument = NULL;
+    GVariant *result = NULL;
+    GError *error = NULL;
+
+    if (ses_data == NULL || ses_data->proxy == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+    AGM_LOGD("%s\n", __func__);
+
+    argument = g_variant_new("(@u@u)",
+                             g_variant_new_uint32(type),
+                             g_variant_new_uint32(silence));
+
+    result = g_dbus_proxy_call_sync(ses_data->proxy,
+                                    "AgmSetGaplessSessionMetadata",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmSetGaplessSessionMetadata: %s\n",
+                  __func__, error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
+int agm_dump(struct agm_dump_info *dump_info) {
+    GVariant *argument = NULL;
+    GVariant *dump_v = NULL;
+    GVariant *result = NULL;
+    GError *error = NULL;
+    int rc = 0;
+
+    if (dump_info == NULL) {
+        AGM_LOGE("%s: invalid input parameters\n", __func__);
+        return -EINVAL;
+    }
+    AGM_LOGD("%s\n", __func__);
+
+    dump_v = g_variant_new("(iuu)",
+                           (gint32)dump_info->signal,
+                           (guint32)dump_info->pid,
+                           (guint32)dump_info->uid);
+    argument = g_variant_new("(@(iuu))", dump_v);
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    result = g_dbus_proxy_call_sync(mdata->proxy,
+                                    "AgmDump",
+                                    argument,
+                                    G_DBUS_CALL_FLAGS_NONE,
+                                    -1,
+                                    NULL,
+                                    &error);
+
+    if (result == NULL) {
+        AGM_LOGE("%s: Error invoking AgmDump: %s\n", __func__,
+                  error->message);
+        g_error_free(error);
+        return -EINVAL;
+    }
+
+    g_variant_unref(result);
+    return 0;
+}
+
 // Stub Implementation.
 int agm_get_params_from_acdb_tunnel(void *payload, size_t *size){
     return 0;
@@ -2178,6 +2680,136 @@ int agm_shmem_buf_free(uint32_t spf_mem_handle){
     return -EINVAL;
 }
 
+static void on_emit_ssr_signal_callback(GDBusConnection *conn,
+                                        const gchar *sender_name,
+                                        const gchar *object_path,
+                                        const gchar *interface_name,
+                                        const gchar *signal_name,
+                                        GVariant *parameters,
+                                        gpointer data)
+{
+    agm_ssr_callback_data *cb_data = (agm_ssr_callback_data *)data;
+    GVariantIter arg_i;
+    uint32_t evt_type = 0;
+
+    (void)conn; (void)sender_name; (void)object_path;
+    (void)interface_name; (void)signal_name;
+
+    g_variant_iter_init(&arg_i, parameters);
+    g_variant_iter_next(&arg_i, "u", &evt_type);
+
+    if (cb_data && cb_data->cb)
+        cb_data->cb((enum agm_ssr_event_type)evt_type, cb_data->client_data);
+}
+
+int agm_register_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    GError *error = NULL;
+    agm_ssr_callback_data *ssr_cb_data = NULL;
+    int rc = 0;
+
+    if (!cb)
+        return -EINVAL;
+
+    if (mdata == NULL) {
+        if ((rc = initialize_module_data()) != 0)
+            return rc;
+    }
+
+    g_mutex_lock(&ssr_mutex);
+
+    /* Reject duplicate (cb, client_data) registrations to prevent orphaned
+     * D-Bus subscriptions and multiple invocations per SSR event. */
+    for (GList *node = ssr_callbacks; node != NULL; node = node->next) {
+        agm_ssr_callback_data *existing = (agm_ssr_callback_data *)node->data;
+        if (existing && existing->cb == cb &&
+            existing->client_data == client_data) {
+            g_mutex_unlock(&ssr_mutex);
+            return -EALREADY;
+        }
+    }
+
+    ssr_cb_data = (agm_ssr_callback_data *)malloc(sizeof(agm_ssr_callback_data));
+    if (!ssr_cb_data) {
+        g_mutex_unlock(&ssr_mutex);
+        return -ENOMEM;
+    }
+
+    ssr_cb_data->cb          = cb;
+    ssr_cb_data->client_data = client_data;
+
+    if (ssr_callbacks == NULL) {
+        ssr_loop = g_main_loop_new(NULL, FALSE);
+        ssr_thread_loop = g_thread_try_new("agm_ssr_loop",
+                                           ssr_signal_threadloop,
+                                           ssr_loop, &error);
+        if (!ssr_thread_loop) {
+            AGM_LOGE("%s: could not create SSR thread: %s\n", __func__,
+                     error->message);
+            g_error_free(error);
+            g_main_loop_unref(ssr_loop);
+            ssr_loop = NULL;
+            g_mutex_unlock(&ssr_mutex);
+            free(ssr_cb_data);
+            return -EINVAL;
+        }
+    }
+
+    ssr_cb_data->sub_id = g_dbus_connection_signal_subscribe(
+                                mdata->conn,
+                                NULL,
+                                AGM_MODULE_IFACE,
+                                "AgmSsrEventCb",
+                                AGM_OBJECT_PATH,
+                                NULL,
+                                G_DBUS_SIGNAL_FLAGS_NONE,
+                                on_emit_ssr_signal_callback,
+                                ssr_cb_data,
+                                NULL);
+
+    ssr_callbacks = g_list_append(ssr_callbacks, ssr_cb_data);
+
+    g_mutex_unlock(&ssr_mutex);
+    return 0;
+}
+
+int agm_deregister_ssr_cb(agm_ssr_cb cb, void *client_data)
+{
+    GList *node;
+    agm_ssr_callback_data *cb_data;
+    GThread *thread_to_join = NULL;
+
+    if (!cb)
+        return -EINVAL;
+
+    g_mutex_lock(&ssr_mutex);
+
+    for (node = ssr_callbacks; node != NULL; node = node->next) {
+        cb_data = (agm_ssr_callback_data *)node->data;
+        if (cb_data && cb_data->cb == cb &&
+            cb_data->client_data == client_data) {
+            g_dbus_connection_signal_unsubscribe(mdata->conn, cb_data->sub_id);
+            ssr_callbacks = g_list_remove(ssr_callbacks, cb_data);
+            free(cb_data);
+            break;
+        }
+    }
+
+    if (ssr_callbacks == NULL && ssr_loop != NULL) {
+        g_main_loop_quit(ssr_loop);
+        ssr_loop = NULL;
+        thread_to_join = ssr_thread_loop;
+        ssr_thread_loop = NULL;
+    }
+
+    g_mutex_unlock(&ssr_mutex);
+
+    if (thread_to_join)
+        g_thread_join(thread_to_join);
+
+    return 0;
+}
+
 int agm_init() {
     GError *error = NULL;
     int rc = 0;
@@ -2198,4 +2830,5 @@ exit:
 }
 
 int agm_deinit() {
+    return 0;
 }
