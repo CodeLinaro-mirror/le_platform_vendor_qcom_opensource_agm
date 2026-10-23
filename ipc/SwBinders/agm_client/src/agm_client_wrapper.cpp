@@ -63,7 +63,6 @@ using namespace android;
 
 sp<server_death_notifier> Server_death_notifier = NULL;
 sp<IAgmService> agm_client = NULL;
-
 static pthread_mutex_t agm_client_lock = PTHREAD_MUTEX_INITIALIZER;
 
 
