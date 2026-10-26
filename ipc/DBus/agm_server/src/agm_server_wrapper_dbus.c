@@ -3299,7 +3299,7 @@ int ipc_agm_init() {
     mdata->conn = agm_dbus_new_connection();
 
     if (mdata->conn == NULL) {
-        AGM_LOGE("Failed to request name on bus: %s", err.message);
+        AGM_LOGE("Failed to request name on bus");
         rc = -EINVAL;
         goto fail;
     }
