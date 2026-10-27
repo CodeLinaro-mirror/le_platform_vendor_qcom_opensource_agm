@@ -77,7 +77,7 @@ struct chunk_fmt {
     uint16_t bits_per_sample;
 };
 
-static int close = 0;
+static volatile sig_atomic_t stop_requested = 0;
 
 void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned int usb_device,
                  unsigned int channels, unsigned int rate, unsigned int bits,
@@ -93,7 +93,7 @@ void stream_close(int sig)
 {
     /* allow the stream to be closed gracefully */
     signal(sig, SIG_IGN);
-    close = 1;
+    stop_requested = 1;
 }
 
 static void usage(void)
@@ -595,7 +595,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
             }
 #endif
         }
-    } while (!close && num_read > 0);
+    } while (!stop_requested && num_read > 0);
 
     pcm_stop(pcm);
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING

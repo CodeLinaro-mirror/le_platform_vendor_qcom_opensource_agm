@@ -3,7 +3,7 @@ pkgconfig_DATA = agmtest.pc
 EXTRA_DIST = $(pkgconfig_DATA)
 
 AM_CFLAGS = -Wno-unused-parameter -Wno-unused-result
-AM_CFLAGS += -I${includedir}/acdbdata -I$(top_srcdir)/service/inc/public
+AM_CFLAGS += -I$(top_srcdir)/service/inc/public
 AM_CFLAGS += $(GLIB_CFLAGS) -include glib.h @KVH2XML_CFLAGS@
 
 if USE_G_STR_FUNC
