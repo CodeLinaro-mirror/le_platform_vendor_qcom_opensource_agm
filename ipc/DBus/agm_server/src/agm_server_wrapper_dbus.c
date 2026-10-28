@@ -67,7 +67,10 @@
 #include <dbus/dbus.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
+#include <pthread.h>
 #include <agm/agm_api.h>
 #include "agm-dbus-utils.h"
 #include "agm_server_wrapper_dbus.h"
@@ -78,6 +81,11 @@
 #define AGM_MODULE_IFACE "org.Qti.Agm"
 #define AGM_SESSION_IFACE "org.Qti.Agm.Session"
 #define AGM_DBUS_CONNECTION "org.Qti.AgmService"
+
+/* Matches the GSL ADSP IPC timeout that unblocks graph_read/write and the
+ * client-side AGM_DBUS_ASYNC_CALL_TIMEOUT_MS ack budget. The worker is
+ * expected to return within this window in all non-catastrophic cases. */
+#define AGM_WORKER_JOIN_TIMEOUT_MS 1000
 
 /* Module Level data */
 typedef struct {
@@ -108,6 +116,10 @@ typedef struct {
     pthread_cond_t cond;
     pthread_t ses_tid;
     char eventType[50];
+    /* D-Bus unique name of the client that opened this session (":1.NN").
+       Used by the NameOwnerChanged filter to clean up when the client
+       disappears without calling AgmSessionClose (e.g. SIGKILL). */
+    char *owner_unique_name;
 } agm_session_data;
 
 typedef struct {
@@ -421,7 +433,9 @@ static void* async_thread_func(void *userdata) {
                 }
                 pthread_mutex_lock(&ses_data->lock);
                 ses_write_done(ses_data, ret);
-                ses_data->thread_state = SES_THREAD_IDLE;
+                /* Preserve EXIT if cleanup set it during write(). */
+                if (ses_data->thread_state != SES_THREAD_EXIT)
+                    ses_data->thread_state = SES_THREAD_IDLE;
             }
 
             if (ses_data->thread_state == SES_THREAD_READ_QUEUED) {
@@ -432,7 +446,8 @@ static void* async_thread_func(void *userdata) {
                 }
                 pthread_mutex_lock(&ses_data->lock);
                 ses_read_done(ses_data, ret);
-                ses_data->thread_state = SES_THREAD_IDLE;
+                if (ses_data->thread_state != SES_THREAD_EXIT)
+                    ses_data->thread_state = SES_THREAD_IDLE;
             }
         }
 
@@ -447,75 +462,187 @@ static void* async_thread_func(void *userdata) {
     return NULL;
 }
 
-static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
-                                                 DBusMessage *msg,
-                                                 void *userdata) {
-    agm_session_data *ses_data = (agm_session_data *) userdata;
+/*
+ * Clean up a session whose owner vanished without calling AgmSessionClose.
+ * Returns true if fully cleaned; the caller must then g_hash_table_remove()
+ * to free ses_data. Returns false if the worker could not be joined; the
+ * caller must leave the session in the hash to avoid UAF.
+ */
+static bool cleanup_session_force(agm_session_data *ses_data)
+{
     GList *node = NULL;
     agm_callback_data *cb_data = NULL;
 
-    if (conn == NULL) {
-        AGM_LOGE("%s:Connection is NULL", __func__);
-        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    if (ses_data == NULL)
+        return false;
+
+    AGM_LOGE("%s: force-cleaning session %u (owner=%s)", __func__,
+             ses_data->session_id,
+             ses_data->owner_unique_name ? ses_data->owner_unique_name : "<none>");
+
+    /* Deregister event callbacks before freeing. If deregister fails the
+     * AGM core may still fire into ses_data, so bail out to avoid UAF. */
+    for (node = ses_data->callbacks; node != NULL; node = node->next) {
+        cb_data = (agm_callback_data *)node->data;
+        if (cb_data == NULL)
+            continue;
+        if (agm_session_register_cb(cb_data->session_id,
+                                    NULL,
+                                    (enum event_type)cb_data->event_type,
+                                    (void *)ses_data) != 0) {
+            AGM_LOGE("%s: deregister cb failed sid=%u evt=%u; "
+                     "leaving session in hash to avoid UAF",
+                     __func__, cb_data->session_id, cb_data->event_type);
+            return false;
+        }
+        free(cb_data);
+        node->data = NULL;
     }
+    g_list_free(ses_data->callbacks);
+    ses_data->callbacks = NULL;
 
-    if (msg == NULL) {
-        AGM_LOGE("%s:msg is NULL", __func__);
-        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-    }
+    /* Signal the worker to exit and wait for it. The join budget bounds how
+     * long we stall the D-Bus dispatch thread if the worker is still inside
+     * agm_session_read/write(); see AGM_WORKER_JOIN_TIMEOUT_MS. */
+    if (ses_data->ses_tid != 0) {
+        struct timespec deadline;
+        long add_ns = (long)AGM_WORKER_JOIN_TIMEOUT_MS * 1000L * 1000L;
 
-    if (userdata == NULL) {
-        AGM_LOGE("%s:Userdata is NULL ", __func__);
-        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-    }
+        pthread_mutex_lock(&ses_data->lock);
+        ses_data->thread_state = SES_THREAD_EXIT;
+        pthread_cond_broadcast(&ses_data->cond);
+        pthread_mutex_unlock(&ses_data->lock);
 
-    if (dbus_message_is_signal(msg,
-                               "org.freedesktop.DBus.Local",
-                               "Disconnected")) {
-        /* connection died close the session for which callback got triggered */
-        AGM_LOGE("%s:connection died for session %d", __func__, ses_data->session_id);
-
-        for (node = ses_data->callbacks; node != NULL; node = node->next) {
-            cb_data = (agm_callback_data *)node->data;
-            if (agm_session_register_cb(cb_data->session_id,
-                                        NULL,
-                                        (enum event_type)cb_data->event_type,
-                                        (void *)ses_data) != 0)
-                AGM_LOGE("%s:Deregistering callback failed.", __func__);
-            free(node->data);
-            node->data = NULL;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec  += add_ns / 1000000000L;
+        deadline.tv_nsec += add_ns % 1000000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
         }
 
-        g_list_free(ses_data->callbacks);
-
-        dbus_connection_remove_filter(conn, disconnection_filter_cb, ses_data);
-
-        if (agm_session_close(ses_data->handle) != 0) {
-            AGM_LOGE("%s:agm_session_close failed.", __func__);
-            agm_dbus_send_error(mdata->conn,
-                                msg,
-                                DBUS_ERROR_FAILED,
-                                "agm_session_close failed.");
+        if (pthread_timedjoin_np(ses_data->ses_tid, NULL, &deadline) == 0) {
+            ses_data->ses_tid = 0;
+            /* Worker took the EXIT short-circuit without running
+             * ses_write/read_done, so a queued buf was never freed. */
+            if (ses_data->buf != NULL) {
+                free(ses_data->buf);
+                ses_data->buf = NULL;
+                ses_data->buf_size = 0;
+            }
+            pthread_cond_destroy(&ses_data->cond);
+            pthread_mutex_destroy(&ses_data->lock);
+        } else {
+            /* Worker still alive past the join budget; GSL/DSP is likely
+             * hung. Leak ses_data on purpose to avoid UAF on its lock/cond,
+             * and skip stop/close which would deadlock on sess_obj->lock. */
+            AGM_LOGE("%s: worker thread stuck past %dms sid=%u; "
+                     "leaving session in hash to avoid UAF",
+                     __func__, AGM_WORKER_JOIN_TIMEOUT_MS,
+                     ses_data->session_id);
+            return false;
         }
+    }
 
+    /* Safe to touch the handle only after the worker has joined. */
+    if (agm_session_stop(ses_data->handle) != 0)
+        AGM_LOGE("%s: agm_session_stop failed sid=%u",
+                 __func__, ses_data->session_id);
+    if (agm_session_close(ses_data->handle) != 0)
+        AGM_LOGE("%s: agm_session_close failed sid=%u",
+                 __func__, ses_data->session_id);
+
+    /* Remove the D-Bus object and clear the path so agm_free_session
+     * doesn't try to remove it again. */
+    if (ses_data->dbus_obj_path != NULL) {
         if (agm_dbus_remove_interface(mdata->conn,
                                       ses_data->dbus_obj_path,
-                                      session_interface_info.name) != 0) {
-            AGM_LOGE("%s:Unable to remove interface %s for session %u",
-                     __func__, ses_data->dbus_obj_path, ses_data->session_id);
-            agm_dbus_send_error(mdata->conn,
-                                msg,
-                                DBUS_ERROR_FAILED,
-                                "agm_session_close failed.");
-        }
-
+                                      session_interface_info.name) != 0)
+            AGM_LOGE("%s: remove_interface failed for %s",
+                     __func__, ses_data->dbus_obj_path);
         free(ses_data->dbus_obj_path);
         ses_data->dbus_obj_path = NULL;
-
-        g_hash_table_remove(mdata->sessions,
-                            GUINT_TO_POINTER(ses_data->session_id));
     }
 
+    return true;
+}
+
+/*
+ * D-Bus filter for NameOwnerChanged. A peer death on the bus shows up as
+ * name == ":1.NN" with new_owner == "". We ignore well-known names and
+ * acquisitions.
+ */
+static DBusHandlerResult name_owner_changed_filter(DBusConnection *conn,
+                                                   DBusMessage *msg,
+                                                   void *userdata __unused)
+{
+    const char *name = NULL;
+    const char *old_owner = NULL;
+    const char *new_owner = NULL;
+    DBusError err;
+    GHashTableIter iter;
+    gpointer key, value;
+    GList *victims = NULL;
+    GList *node = NULL;
+
+    if (conn == NULL || msg == NULL)
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
+    if (!dbus_message_is_signal(msg,
+                                DBUS_INTERFACE_DBUS,
+                                "NameOwnerChanged"))
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
+    dbus_error_init(&err);
+    if (!dbus_message_get_args(msg, &err,
+                               DBUS_TYPE_STRING, &name,
+                               DBUS_TYPE_STRING, &old_owner,
+                               DBUS_TYPE_STRING, &new_owner,
+                               DBUS_TYPE_INVALID)) {
+        AGM_LOGE("%s: failed to parse NameOwnerChanged: %s",
+                 __func__, err.message);
+        dbus_error_free(&err);
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+    dbus_error_free(&err);
+
+    /* Only unique names represent a peer connection, and only
+     * new_owner == "" means that peer went away. */
+    if (name == NULL || name[0] != ':' ||
+        new_owner == NULL || new_owner[0] != '\0')
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
+    if (mdata == NULL || mdata->sessions == NULL)
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
+    AGM_LOGI("%s: client %s vanished, scanning for orphan sessions",
+             __func__, name);
+
+    /* Collect victims first; we cannot modify the hash during iteration. */
+    g_hash_table_iter_init(&iter, mdata->sessions);
+    while (g_hash_table_iter_next(&iter, &key, &value)) {
+        agm_session_data *ses_data = (agm_session_data *)value;
+        if (ses_data == NULL || ses_data->owner_unique_name == NULL)
+            continue;
+        if (strcmp(ses_data->owner_unique_name, name) == 0)
+            victims = g_list_prepend(victims, ses_data);
+    }
+
+    if (victims == NULL) {
+        AGM_LOGI("%s: no sessions owned by %s", __func__, name);
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+
+    /* Clean each victim; skip hash removal if cleanup fails (stuck worker). */
+    for (node = victims; node != NULL; node = node->next) {
+        agm_session_data *ses_data = (agm_session_data *)node->data;
+        uint32_t sid = ses_data->session_id;
+        if (cleanup_session_force(ses_data))
+            g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(sid));
+    }
+    g_list_free(victims);
+
+    /* Signal observed only; let other filters run too. */
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
 
@@ -533,6 +660,11 @@ void agm_free_session(gpointer c_data) {
                      data->dbus_obj_path, data->session_id);
         free(data->dbus_obj_path);
         data->dbus_obj_path = NULL;
+    }
+
+    if (data->owner_unique_name != NULL) {
+        free(data->owner_unique_name);
+        data->owner_unique_name = NULL;
     }
 
     free(data);
@@ -577,6 +709,8 @@ static agm_session_data * get_session_data(agm_module_dbus_data *mdata,
                  "/session_",
                  session_id);
         ses_data->callbacks = NULL;
+        ses_data->owner_unique_name = NULL;
+        ses_data->ses_tid = 0;
 
         if (agm_dbus_add_interface(mdata->conn,
                                    ses_data->dbus_obj_path,
@@ -3101,7 +3235,9 @@ static void ipc_agm_session_close(DBusConnection *conn,
         return;
     }
 
-    dbus_connection_remove_filter(conn, disconnection_filter_cb, ses_data);
+    /* No per-session D-Bus filter to remove anymore; client-death cleanup
+       is driven by the single global name_owner_changed_filter installed
+       in ipc_agm_init(). */
 
     ses_data->thread_state = SES_THREAD_EXIT;
     pthread_cond_signal(&ses_data->cond);
@@ -3199,7 +3335,36 @@ static void ipc_agm_session_open(DBusConnection *conn,
         return;
     }
 
+    /* Record the D-Bus unique name of the caller so the global
+       name_owner_changed_filter can match this session when the client
+       vanishes (SIGKILL, segfault, OOM-kill). Allocate the candidate
+       first; only commit it to ses_data->owner_unique_name after the
+       whole open path (agm_session_open + pthread_create) has
+       succeeded, so a mid-way failure cannot destroy the original
+       owner of a re-opened session. */
+    char *new_owner = NULL;
+    {
+        const char *sender = dbus_message_get_sender(msg);
+        if (sender != NULL) {
+            new_owner = strdup(sender);
+            if (new_owner == NULL) {
+                AGM_LOGE("%s: strdup(sender=%s) failed for session %u",
+                         __func__, sender, session_id);
+                if (newly_created)
+                    g_hash_table_remove(mdata->sessions,
+                                        GUINT_TO_POINTER(session_id));
+                agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_NO_MEMORY,
+                                    "strdup(sender) failed");
+                return;
+            }
+        } else {
+            AGM_LOGE("%s: dbus_message_get_sender returned NULL for session %u",
+                     __func__, session_id);
+        }
+    }
+
     if (agm_session_open(session_id, (enum agm_session_mode) sess_mode, &ses_data->handle)) {
+        free(new_owner);  /* candidate not committed, keep existing owner */
         if (newly_created)
             g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(session_id));
         agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
@@ -3213,16 +3378,37 @@ static void ipc_agm_session_open(DBusConnection *conn,
     snprintf(ses_data->eventType, sizeof("Wait"), "%s", "Wait");
     AGM_LOGD("%s:Wait Event", __func__);
     snprintf(thread_name, sizeof(thread_name), "agm_ses_async_thread_%d", session_id);
-    if (pthread_create(&ses_data->ses_tid, NULL, async_thread_func, ses_data)){
+    if (pthread_create(&ses_data->ses_tid, NULL, async_thread_func, ses_data)) {
         AGM_LOGE("%s: agm session async thread creation failed", __func__);
+        /* Full rollback: the session is unusable without a worker.
+         * Tear down everything we built so far and fail the open
+         * request so the client knows the session is not live. */
+        ses_data->ses_tid = 0;
+        pthread_cond_destroy(&ses_data->cond);
+        pthread_mutex_destroy(&ses_data->lock);
+        if (agm_session_close(ses_data->handle) != 0)
+            AGM_LOGE("%s: agm_session_close during rollback failed sid=%u",
+                     __func__, session_id);
+        free(new_owner);
+        if (newly_created)
+            g_hash_table_remove(mdata->sessions, GUINT_TO_POINTER(session_id));
+        agm_dbus_send_error(mdata->conn, msg, DBUS_ERROR_FAILED,
+                            "pthread_create(async_thread_func) failed");
+        return;
     }
     AGM_LOGD("%s : agm session async thread creation success", __func__);
 
-    if (!dbus_connection_add_filter(conn,
-                                    disconnection_filter_cb,
-                                    ses_data,
-                                    NULL))
-        AGM_LOGE("Unable to add death notification filter");
+    /* Everything that can fail has succeeded; commit the owner. */
+    if (new_owner != NULL) {
+        if (ses_data->owner_unique_name != NULL)
+            free(ses_data->owner_unique_name);
+        ses_data->owner_unique_name = new_owner;
+    }
+
+    /* No per-session dbus_connection_add_filter here anymore. Client-death
+       cleanup is handled centrally by name_owner_changed_filter, which was
+       installed once in ipc_agm_init() and demuxes to the right session
+       via ses_data->owner_unique_name. */
 
     reply = dbus_message_new_method_return(msg);
     dbus_message_iter_init_append(reply, &arg_i);
@@ -3285,6 +3471,10 @@ int ipc_agm_init() {
         rc = -EINVAL;
         return rc;
     }
+    /* Zero fields the fail label touches. */
+    mdata->sessions = NULL;
+    mdata->conn = NULL;
+    mdata->dbus_obj_path = NULL;
     mdata->dbus_obj_path =
                     (char *)malloc(sizeof(char)*(strlen(AGM_OBJECT_PATH) + 1));
     if (mdata->dbus_obj_path == NULL) {
@@ -3316,6 +3506,38 @@ int ipc_agm_init() {
         goto fail;
     }
 
+    /* Install the client-death watcher before glib takes over dispatch,
+     * so dbus_bus_add_match() can use the blocking path (&err) safely. */
+    mdata->sessions = g_hash_table_new_full(g_direct_hash,
+                                            g_direct_equal,
+                                            NULL,
+                                            agm_free_session);
+
+    dbus_bus_add_match(mdata->conn->conn,
+                       "type='signal',"
+                       "sender='org.freedesktop.DBus',"
+                       "interface='org.freedesktop.DBus',"
+                       "member='NameOwnerChanged'",
+                       &err);
+    if (dbus_error_is_set(&err)) {
+        AGM_LOGE("%s: dbus_bus_add_match(NameOwnerChanged) failed: %s",
+                 __func__, err.message);
+        dbus_error_free(&err);
+        rc = -EINVAL;
+        goto fail;
+    }
+
+    if (!dbus_connection_add_filter(mdata->conn->conn,
+                                    name_owner_changed_filter,
+                                    NULL,
+                                    NULL)) {
+        AGM_LOGE("%s: dbus_connection_add_filter(name_owner_changed_filter) "
+                 "failed; client-death cleanup disabled", __func__);
+        rc = -EINVAL;
+        goto fail;
+    }
+    AGM_LOGI("%s: NameOwnerChanged watcher installed", __func__);
+
     if (agm_setup_dbus_with_main_loop(mdata->conn)) {
         AGM_LOGE("Failed to setup main loop");
         rc = -EINVAL;
@@ -3331,11 +3553,6 @@ int ipc_agm_init() {
         goto fail;
     }
 
-    mdata->sessions = g_hash_table_new_full(g_direct_hash,
-                                            g_direct_equal,
-                                            NULL,
-                                            agm_free_session);
-
     if ((rc = agm_init()) != 0) {
         AGM_LOGE("agm initialization failed");
         goto fail;
@@ -3343,7 +3560,12 @@ int ipc_agm_init() {
     dbus_error_free(&err);
     return rc;
 fail:
-    agm_dbus_connection_free(mdata->conn);
+    if (mdata->sessions != NULL) {
+        g_hash_table_unref(mdata->sessions);
+        mdata->sessions = NULL;
+    }
+    if (mdata->conn != NULL)
+        agm_dbus_connection_free(mdata->conn);
     free(mdata->dbus_obj_path);
     mdata->dbus_obj_path = NULL;
     free(mdata);
@@ -3368,6 +3590,14 @@ void ipc_agm_deinit() {
     if (mdata == NULL) {
         AGM_LOGE("ipc_agm_deinit failed: mdata is NULL");
         return;
+    }
+
+    /* Drop the filter so it doesn't fire during cleanup. The match rule
+     * on dbus-daemon is cleaned up when we close the connection. */
+    if (mdata->conn != NULL && mdata->conn->conn != NULL) {
+        dbus_connection_remove_filter(mdata->conn->conn,
+                                      name_owner_changed_filter,
+                                      NULL);
     }
 
     g_hash_table_remove_all(mdata->sessions);
