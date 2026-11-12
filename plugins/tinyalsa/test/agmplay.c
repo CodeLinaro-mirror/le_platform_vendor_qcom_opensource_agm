@@ -388,6 +388,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
     int playback_path, playback_value;
     int size, index, ret = 0;
     int num_read;
+    bool write_err = false;
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
     unsigned int marker_count = 0;
 #endif
@@ -622,6 +623,7 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
         if (num_read > 0) {
             if (pcm_write(pcm, buffer, num_read)) {
                 printf("Error playing sample\n");
+                write_err = true;
                 break;
             }
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
@@ -633,7 +635,14 @@ void play_sample(FILE *file, unsigned int card, unsigned int device, unsigned in
         }
     } while (!stop_requested && num_read > 0);
 
-    pcm_stop(pcm);
+    /* drain at EOF; stop immediately on Ctrl-C or write error */
+    if (stop_requested || write_err) {
+        pcm_stop(pcm);
+    } else if (pcm_drain(pcm)) {
+        /* stop in case tinyalsa rejected drain before the plugin */
+        printf("pcm_drain failed: %s\n", pcm_get_error(pcm));
+        pcm_stop(pcm);
+    }
 #ifdef AGM_ENABLE_BOOTKPI_LOGGING
     if (kpi_logging)
         TEST_BMETRICS_LOG("audio_chime_pcm_closed");

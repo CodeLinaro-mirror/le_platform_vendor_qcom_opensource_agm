@@ -51,6 +51,7 @@
 #include <strings.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <tinyalsa/plugin.h>
 #include <snd-card-def.h>
 #include <tinyalsa/asoundlib.h>
@@ -114,7 +115,14 @@ struct agm_pcm_priv {
     struct agm_mmap_buffer_port mmap_buffer_port[2];
     bool mmap_status;
     uint32_t mmap_buf_tout;
+    /* EOS (drain) synchronization, playback only */
+    pthread_mutex_t eos_lock;
+    pthread_cond_t eos_cond;
+    bool eos;
 };
+
+/* margin on top of buffered duration when waiting for EOS_RENDERED */
+#define AGM_PCM_EOS_MARGIN_SEC 1
 
 struct pcm_plugin_hw_constraints agm_pcm_constrs = {
     .access = 0,
@@ -650,6 +658,13 @@ static int agm_pcm_prepare(struct pcm_plugin *plugin)
     if (ret)
         return ret;
 
+    /* clear stale drain state */
+    if (!(plugin->mode & PCM_IN)) {
+        pthread_mutex_lock(&priv->eos_lock);
+        priv->eos = false;
+        pthread_mutex_unlock(&priv->eos_lock);
+    }
+
     ret = agm_session_prepare(handle);
     errno = ret;
 
@@ -667,6 +682,94 @@ static int agm_pcm_start(struct pcm_plugin *plugin)
         return ret;
 
     ret = agm_session_start(handle);
+    errno = ret;
+
+    return ret;
+}
+
+static void agm_pcm_event_cb(uint32_t session_id __unused,
+                             struct agm_event_cb_params *event_params,
+                             void *client_data)
+{
+    struct agm_pcm_priv *priv = client_data;
+
+    if (!priv || !event_params)
+        return;
+
+    if (event_params->event_id == AGM_EVENT_EOS_RENDERED) {
+        pthread_mutex_lock(&priv->eos_lock);
+        priv->eos = false;
+        pthread_cond_signal(&priv->eos_cond);
+        pthread_mutex_unlock(&priv->eos_lock);
+    }
+}
+
+/* send EOS, wait for EOS_RENDERED (or timeout), then stop */
+static int agm_pcm_drain(struct pcm_plugin *plugin)
+{
+    struct agm_pcm_priv *priv = plugin->priv;
+    struct timespec timeout;
+    uint64_t handle;
+    uint64_t drain_us;
+    int ret;
+
+    ret = agm_get_session_handle(priv, &handle);
+    if (ret)
+        return ret;
+/*
+ * Capture: drain == stop.
+ * MMAP playback: data is pulled by DSP from the shared buffer, there is
+ * no write-path EOS / EOS_RENDERED in this mode, so just stop. Client is
+ * expected to wait for the buffer to be consumed (via position) before
+ * calling drain.
+ */
+    if (plugin->mode & (PCM_IN | PCM_MMAP)) {
+        ret = agm_session_stop(handle);
+        errno = ret;
+        return ret;
+    }
+
+    /* deadline = buffered duration + margin */
+    drain_us = priv->media_config->rate ?
+        ((uint64_t)priv->total_size_frames * 1000000ULL /
+         priv->media_config->rate) : 0;
+    clock_gettime(CLOCK_MONOTONIC, &timeout);
+    timeout.tv_sec += (time_t)(drain_us / 1000000ULL) + AGM_PCM_EOS_MARGIN_SEC;
+    timeout.tv_nsec += (long)((drain_us % 1000000ULL) * 1000ULL);
+    if (timeout.tv_nsec >= 1000000000L) {
+        timeout.tv_sec++;
+        timeout.tv_nsec -= 1000000000L;
+    }
+
+    /* set before sending EOS so an early EOS_RENDERED is not missed */
+    pthread_mutex_lock(&priv->eos_lock);
+    priv->eos = true;
+    pthread_mutex_unlock(&priv->eos_lock);
+
+    ret = agm_session_eos(handle);
+
+    pthread_mutex_lock(&priv->eos_lock);
+    if (ret) {
+        AGM_LOGE("%s: agm_session_eos failed ret=%d\n", __func__, ret);
+        priv->eos = false;
+    }
+
+    while (priv->eos) {
+        ret = pthread_cond_timedwait(&priv->eos_cond, &priv->eos_lock, &timeout);
+        if (ret) {
+            AGM_LOGE("%s: EOS_RENDERED wait failed ret=%d\n", __func__, ret);
+            priv->eos = false;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&priv->eos_lock);
+
+    {
+        /* report drain error, but always stop */
+        int drain_ret = ret > 0 ? -ret : ret;
+        int stop_ret = agm_session_stop(handle);
+        ret = drain_ret ? drain_ret : stop_ret;
+    }
     errno = ret;
 
     return ret;
@@ -698,6 +801,11 @@ static int agm_pcm_close(struct pcm_plugin *plugin)
     ret = agm_get_session_handle(priv, &handle);
     if (ret)
         return ret;
+
+    if (!(plugin->mode & PCM_IN))
+        agm_session_register_cb(priv->session_id, NULL, AGM_EVENT_DATA_PATH, priv);
+    pthread_cond_destroy(&priv->eos_cond);
+    pthread_mutex_destroy(&priv->eos_lock);
 
     ret = agm_session_close(handle);
     errno = ret;
@@ -934,6 +1042,7 @@ int agm_pcm_open(struct pcm_plugin **plugin, unsigned int card,
     enum agm_session_mode sess_mode = AGM_SESSION_DEFAULT;
     int ret = 0, session_id = device;
     void *card_node, *pcm_node;
+    pthread_condattr_t eos_cond_attr;
 
     agm_pcm_plugin = calloc(1, sizeof(struct pcm_plugin));
     if (!agm_pcm_plugin)
@@ -1002,10 +1111,59 @@ int agm_pcm_open(struct pcm_plugin **plugin, unsigned int card,
         goto err_card_put;
     }
     priv->handle = handle;
+
+    ret = pthread_mutex_init(&priv->eos_lock, NULL);
+    if (ret) {
+        AGM_LOGE("%s: failed to init eos mutex, ret=%d\n", __func__, ret);
+        errno = ret;
+        goto err_session_close;
+    }
+
+    ret = pthread_condattr_init(&eos_cond_attr);
+    if (ret) {
+        AGM_LOGE("%s: failed to init eos condattr, ret=%d\n", __func__, ret);
+        errno = ret;
+        goto err_eos_lock_destroy;
+    }
+
+    /* drain deadline is computed on CLOCK_MONOTONIC */
+    ret = pthread_condattr_setclock(&eos_cond_attr, CLOCK_MONOTONIC);
+    if (ret) {
+        AGM_LOGE("%s: failed to set eos cond clock, ret=%d\n", __func__, ret);
+        pthread_condattr_destroy(&eos_cond_attr);
+        errno = ret;
+        goto err_eos_lock_destroy;
+    }
+
+    ret = pthread_cond_init(&priv->eos_cond, &eos_cond_attr);
+    pthread_condattr_destroy(&eos_cond_attr);
+    if (ret) {
+        AGM_LOGE("%s: failed to init eos cond, ret=%d\n", __func__, ret);
+        errno = ret;
+        goto err_eos_lock_destroy;
+    }
+
+    /* EOS_RENDERED comes on DATA_PATH */
+    if (!(mode & PCM_IN)) {
+        ret = agm_session_register_cb(session_id, agm_pcm_event_cb,
+                                      AGM_EVENT_DATA_PATH, priv);
+        if (ret) {
+            AGM_LOGE("%s: failed to register EOS callback, ret=%d\n", __func__, ret);
+            errno = ret;
+            goto err_eos_cond_destroy;
+        }
+    }
+
     *plugin = agm_pcm_plugin;
 
     return 0;
 
+err_eos_cond_destroy:
+    pthread_cond_destroy(&priv->eos_cond);
+err_eos_lock_destroy:
+    pthread_mutex_destroy(&priv->eos_lock);
+err_session_close:
+    agm_session_close(handle);
 err_card_put:
     snd_card_def_put_card(card_node);
 err_session_free:
@@ -1035,6 +1193,7 @@ struct pcm_plugin_ops pcm_plugin_ops = {
     .ttstamp = agm_pcm_ttstamp,
     .prepare = agm_pcm_prepare,
     .start = agm_pcm_start,
+    .drain = agm_pcm_drain,
     .drop = agm_pcm_drop,
     .mmap = agm_pcm_mmap,
     .munmap = agm_pcm_munmap,
