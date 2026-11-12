@@ -74,6 +74,19 @@ if test "x${enable_bootkpi_logging}" = "xyes"; then
         [AC_MSG_ERROR([--enable-bootkpi-logging requires bootkpi/logging.h])])
 fi
 
+AC_ARG_ENABLE([qlf],
+    AS_HELP_STRING([--enable-qlf], [enable direct QLF postmortem triggers (default is no)]),
+    [enable_qlf=$enableval],
+    [enable_qlf=no])
+AM_CONDITIONAL([ENABLE_QLF], [test "x${enable_qlf}" = "xyes"])
+
+if test "x${enable_qlf}" = "xyes"; then
+    AC_CHECK_HEADERS([qlf_client.h], [],
+        [AC_MSG_ERROR([--enable-qlf requires qlf_client.h])])
+    AC_CHECK_LIB([qlf-client], [QLF_TriggerPostMortem], [],
+        [AC_MSG_ERROR([--enable-qlf requires libqlf-client])])
+fi
+
 AC_ARG_WITH([are_on_apps],
     AS_HELP_STRING([--with-are-on-apps],[Enable ARE (SPF) on APPS support (default is no)]),
     [with_are_on_apps=$withval],

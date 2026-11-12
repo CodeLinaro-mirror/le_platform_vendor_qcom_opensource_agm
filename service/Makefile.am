@@ -35,6 +35,11 @@ endif
 libagm_la_CFLAGS = $(AM_CFLAGS) -DACDB_PATH=\"/etc/acdbdata/\" -DACDB_DELTA_FILE_PATH="/etc/acdbdata/delta"
 libagm_la_CFLAGS += -DCARD_STATE_UNSUPPORTED
 
+if ENABLE_QLF
+libagm_la_CFLAGS += -DENABLE_QLF
+libagm_la_LIBADD += -lqlf-client
+endif
+
 if USE_DEFAULT_ACDB_PATH
 libagm_la_CFLAGS += -DUSE_DEFAULT_ACDB_PATH
 endif

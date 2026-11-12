@@ -33,10 +33,22 @@
 #define LOG_TAG "AGM: session"
 
 #include <malloc.h>
+#include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
 #include <agm/session_obj.h>
 #include <agm/utils.h>
+#if defined(ENABLE_QLF)
+#include "qlf_client.h"
+
+extern bool ar_qlf_is_ready(void) __attribute__((weak));
+
+static bool agm_qlf_is_ready(void)
+{
+    return (NULL != ar_qlf_is_ready) && ar_qlf_is_ready();
+}
+#endif /* ENABLE_QLF */
 #ifdef __QNX__
 #include <limits.h>
 #endif
@@ -71,6 +83,51 @@ char tracestr[100] = "agm: ";
 #endif
 
 #define GSL_EVENT_SRC_MODULE_ID_GSL 0x2001 // DO NOT CHANGE
+
+#if defined(ENABLE_QLF)
+#define AGM_GRAPH_FAIL_EVENT "ar_controller_dx_event"
+#define AGM_GRAPH_FAIL_DETAIL_SIZE 128
+
+void agm_trigger_postmortem(struct session_obj *sess_obj,
+                            const char *detail)
+{
+    QLF_Trigger_Postmortem_Event_t event = {
+        .event_name = AGM_GRAPH_FAIL_EVENT
+    };
+
+    QLF_ErrorCode qlf_rc = QLF_EOK;
+
+    if (sess_obj->qlf_postmortem_triggered) {
+        AGM_LOGD("QLF postmortem already triggered; skipping duplicate request");
+        return;
+    }
+
+    /* QLF diagnostics are optional and unavailable during startup. */
+    if (!agm_qlf_is_ready()) {
+        AGM_LOGD("QLF diagnostics are not ready; skipping graph-failure dump");
+        return;
+    }
+
+    if (NULL == detail) {
+        AGM_LOGE("QLF postmortem detail is NULL");
+        return;
+    }
+
+    /* Record the failure detail before triggering the dump so it can be
+     * captured in the QLF ring buffer when the audio-log-util bridge is enabled.
+     */
+    AGM_LOGE("Graph failure detail: %s", detail);
+
+    qlf_rc = QLF_TriggerPostMortem(&event);
+
+    if (QLF_EOK != qlf_rc) {
+        AGM_LOGE("QLF_TriggerPostMortem failed event=\"%s\" rc=%d",
+                 AGM_GRAPH_FAIL_EVENT, qlf_rc);
+    } else {
+        sess_obj->qlf_postmortem_triggered = true;
+    }
+}
+#endif /* ENABLE_QLF*/
 
 #ifdef AUDIO_FEATURE_ENABLED_GCOV
 extern void __gcov_dump(void);
@@ -839,8 +896,18 @@ static int session_connect_aif(struct session_obj *sess_obj,
                 AGM_LOGE("Error:%d graph open failed session_id: %u, \
                           audio interface id:%u \n",
                           ret, sess_obj->sess_id, aif_obj->aif_id);
+#if defined(ENABLE_QLF)
+                char detail[AGM_GRAPH_FAIL_DETAIL_SIZE] = {0};
+                snprintf(detail, sizeof(detail),
+                    "graph_open failed sess_id=%u aif_id=%u ret=%d",
+                    sess_obj->sess_id, aif_obj->aif_id, ret);
+                agm_trigger_postmortem(sess_obj, detail);
+#endif
                 goto close_device;
             }
+#if defined(ENABLE_QLF)
+            sess_obj->qlf_postmortem_triggered = false;
+#endif
 
             //register callback
             ret = graph_register_cb(graph, graph_event_cb,
@@ -1035,8 +1102,17 @@ static int session_open_without_device(struct session_obj *sess_obj)
         if (ret) {
                 AGM_LOGE("Error:%d graph open failed session_id: %u\n",
                           ret, sess_obj->sess_id);
+#if defined(ENABLE_QLF)
+                char detail[AGM_GRAPH_FAIL_DETAIL_SIZE] = {0};
+                snprintf(detail, sizeof(detail),
+                    "graph_open failed sess_id=%u ret=%d", sess_obj->sess_id, ret);
+                agm_trigger_postmortem(sess_obj, detail);
+#endif
                 goto done;
             }
+#if defined(ENABLE_QLF)
+            sess_obj->qlf_postmortem_triggered = false;
+#endif
             /*register callback*/
             ret = graph_register_cb(graph, graph_event_cb,
                                     (void *)((uintptr_t) sess_obj->sess_id));
@@ -1238,8 +1314,17 @@ static int session_start(struct session_obj *sess_obj)
         agm_trace_end();
         if (ret) {
             AGM_LOGE("Error:%d starting graph\n", ret);
+#if defined(ENABLE_QLF)
+            char detail[AGM_GRAPH_FAIL_DETAIL_SIZE] = {0};
+            snprintf(detail, sizeof(detail),
+                "graph_start failed sess_id=%u ret=%d", sess_obj->sess_id, ret);
+            agm_trigger_postmortem(sess_obj, detail);
+#endif
             goto device_stop;
         }
+#if defined(ENABLE_QLF)
+        sess_obj->qlf_postmortem_triggered = false;
+#endif
 
         list_for_each(node, &sess_obj->aif_pool) {
             aif_obj = node_to_item(node, struct aif, node);
@@ -1286,9 +1371,18 @@ static int session_start(struct session_obj *sess_obj)
         ret = graph_start(sess_obj->graph);
         if (ret) {
             AGM_LOGE("Error:%d starting graph\n", ret);
+#if defined(ENABLE_QLF)
+            char detail[AGM_GRAPH_FAIL_DETAIL_SIZE] = {0};
+            snprintf(detail, sizeof(detail),
+                "graph_start failed sess_id=%u ret=%d", sess_obj->sess_id, ret);
+            agm_trigger_postmortem(sess_obj, detail);
+#endif
             goto unwind;
         }
     }
+#if defined(ENABLE_QLF)
+    sess_obj->qlf_postmortem_triggered = false;
+#endif
 
     sess_obj->state = SESSION_STARTED;
     goto done;
@@ -1411,6 +1505,9 @@ static int session_close(struct session_obj *sess_obj)
         AGM_LOGE("Error:%d closing graph\n", ret);
     }
     sess_obj->graph = NULL;
+#if defined(ENABLE_QLF)
+    sess_obj->qlf_postmortem_triggered = false;
+#endif
     sess_obj->ec_ref_state = false;
     sess_obj->loopback_state = false;
 

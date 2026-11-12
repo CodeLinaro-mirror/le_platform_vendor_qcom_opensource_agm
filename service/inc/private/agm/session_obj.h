@@ -100,6 +100,9 @@ struct session_obj {
     bool ec_ref_state;
     uint32_t rx_metadata_sz;
     uint32_t tx_metadata_sz;
+#if defined(ENABLE_QLF)
+    bool qlf_postmortem_triggered;
+#endif
     pthread_mutex_t lock;
     pthread_mutex_t cb_pool_lock;
     struct agm_buf_info extern_buf_info; /* EXTERN_PUSH_PULL: set via agm_session_set_buf_info() */
