@@ -1415,6 +1415,10 @@ int agm_session_read(uint64_t handle, void *buffer, size_t *bytes_read)
     uint32_t max_payload = 4 + req;
     uint32_t out_len = sizeof(agm_ipc_response_hdr_t) + max_payload;
     uint8_t *out_buf = malloc(out_len);
+    if (!out_buf) {
+        AGM_LOGE("Failed to allocate %u bytes for AGM_OP_SESSION_READ response", out_len);
+        return -ENOMEM;
+    }
 
     int status = agm_send_ipc_msg(g_agm_client, AGM_MSG_TYPE_SESSION_READ, AGM_OP_SESSION_READ,
                                  in_buf, sizeof(in_buf),
