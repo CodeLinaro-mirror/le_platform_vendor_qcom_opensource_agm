@@ -110,6 +110,13 @@ AC_ARG_ENABLE([alsalib],
   [enable_alsalib=no])
 AM_CONDITIONAL([BUILD_ALSALIB], [test "x$enable_alsalib" = "xyes"])
 
+# Optionally disable AGM server build
+AC_ARG_ENABLE([agm-server],
+  [AS_HELP_STRING([--disable-agm-server], [Do not build the standalone AGM daemon (built by default)])],
+  [enable_agm_server=$enableval],
+  [enable_agm_server=yes])
+AM_CONDITIONAL([DISABLE_AGM_SERVER], [test "x$enable_agm_server" = "xno"])
+
 if (test "x${with_glib}" = "xyes"); then
         PKG_CHECK_MODULES(GTHREAD, gthread-2.0 >= 2.16, dummy=yes,
                                 AC_MSG_ERROR(GThread >= 2.16 is required))
