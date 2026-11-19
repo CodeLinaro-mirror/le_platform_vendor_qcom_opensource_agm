@@ -456,7 +456,7 @@ static int capture_audio(FILE *file, audio_format_t format) {
 
     uint32_t bytes_per_sample = g_bits_per_sample / 8;
     uint32_t block_align = g_channels * bytes_per_sample;
-    buffer_size = g_frame_period * g_frame_count;
+    buffer_size = g_frame_period * block_align;
 
     if (format == AUDIO_FORMAT_WAV) {
         header.riff_id = ID_RIFF;
@@ -841,7 +841,7 @@ int main(int argc, char **argv) {
         sess_cfg.dir = dir;
         sess_cfg.sess_mode = AGM_SESSION_DEFAULT;
         sess_cfg.start_threshold = 0;
-        sess_cfg.stop_threshold = 0;
+        sess_cfg.stop_threshold = INT_MAX;
         sess_cfg.sess_flags = 0;
 
     const uint32_t bytes_per_period = g_frame_period * g_channels * (g_bits_per_sample/8);
